@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BNPL streaming transaction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "transaction_id",
+    "purchase_date",
+    "customer_id",
+    "merchant_name",
+    "merchant_category",
+    "customer_state",
+    "principal_ngn",
+    "interest_rate_monthly",
+    "tenor_days",
+    "num_installments",
+    "provider",
+    "credit_score",
+    "first_time_customer"
+  ],
+  "properties": {
+    "transaction_id": {"type": "string", "minLength": 1},
+    "purchase_date": {"type": "string", "format": "date-time"},
+    "customer_id": {"type": "string", "minLength": 1},
+    "merchant_name": {"type": "string", "minLength": 1},
+    "merchant_category": {"type": "string", "minLength": 1},
+    "customer_state": {"type": "string", "minLength": 1},
+    "principal_ngn": {"type": "number", "exclusiveMinimum": 0},
+    "interest_rate_monthly": {"type": "number", "minimum": 0},
+    "tenor_days": {"type": "integer", "minimum": 1},
+    "num_installments": {"type": "integer", "minimum": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "credit_score": {"type": "integer", "minimum": 300, "maximum": 850},
+    "first_time_customer": {"type": "boolean"}
+  }
+}

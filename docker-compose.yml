@@ -1,0 +1,305 @@
+x-airflow-environment: &airflow-environment
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  HF_DATASET_IDS: ${HF_DATASET_IDS}
+  BNPL_SOURCE_DATASET_ID: ${BNPL_SOURCE_DATASET_ID}
+  HF_DATASET_SPLIT: ${HF_DATASET_SPLIT}
+  INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE}
+  INGEST_MAX_ROWS: ${INGEST_MAX_ROWS}
+  MINIO_ENDPOINT: http://minio:9000
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+  MINIO_BUCKET: ${MINIO_BUCKET}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  KAFKA_TOPIC: ${KAFKA_TOPIC}
+  PIPELINE_REGISTRY_ENABLED: ${PIPELINE_REGISTRY_ENABLED:-true}
+
+x-spark-environment: &spark-environment
+  MINIO_ENDPOINT: http://minio:9000
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+  MINIO_BUCKET: ${MINIO_BUCKET}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  KAFKA_TOPIC: ${KAFKA_TOPIC}
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: bnpl-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports: ["5432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [bnpl-network]
+
+  postgres-schema-init:
+    image: postgres:16
+    container_name: bnpl-postgres-schema-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./sql:/sql:ro
+    entrypoint: >
+      /bin/sh -c "psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/init.sql &&
+      psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/analytics_schema.sql &&
+      psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/ml_schema.sql &&
+      psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/batch_registry.sql &&
+      psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/data_quality_schema.sql"
+    networks: [bnpl-network]
+
+  minio:
+    image: minio/minio:latest
+    container_name: bnpl-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports: ["${MINIO_API_PORT:-9002}:9000", "${MINIO_CONSOLE_PORT:-9001}:9001"]
+    volumes: ["minio_data:/data"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [bnpl-network]
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: bnpl-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      mc mb -p local/${MINIO_BUCKET} || true;"
+    networks: [bnpl-network]
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.18
+    container_name: bnpl-redpanda
+    profiles: [streaming, inference]
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports: ["19092:19092", "9644:9644"]
+    volumes: ["redpanda_data:/var/lib/redpanda/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health -X brokers=localhost:9092 | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [bnpl-network]
+
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.18
+    container_name: bnpl-redpanda-init
+    profiles: [streaming, inference]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: /bin/sh -c "rpk topic create ${KAFKA_TOPIC} -X brokers=redpanda:9092 || true;"
+    networks: [bnpl-network]
+
+  fake-bnpl-producer:
+    build: ./kafka/producer
+    image: bnpl-fake-producer:latest
+    container_name: bnpl-fake-producer
+    profiles: [streaming]
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      FAKE_EVENTS_PER_SECOND: ${FAKE_EVENTS_PER_SECOND:-2}
+      FAKE_INVALID_RATE: ${FAKE_INVALID_RATE:-0.02}
+      FAKE_RANDOM_SEED: ${FAKE_RANDOM_SEED:-42}
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  spark-master:
+    build: ./spark
+    image: bnpl-spark:3.5.1
+    container_name: spark-master
+    environment:
+      <<: *spark-environment
+      SPARK_MODE: master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    ports: ["7077:7077", "8080:8080"]
+    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/$$(hostname)/7077'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [bnpl-network]
+
+  spark-worker:
+    image: bnpl-spark:3.5.1
+    environment:
+      <<: *spark-environment
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    deploy:
+      replicas: ${SPARK_WORKER_REPLICAS:-2}
+    networks: [bnpl-network]
+
+  spark-streaming-job:
+    image: bnpl-spark:3.5.1
+    container_name: bnpl-spark-streaming
+    profiles: [streaming]
+    command:
+      - /opt/bitnami/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --packages
+      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      - /opt/bitnami/spark/app/jobs/streaming_kafka_to_bronze.py
+    environment: *spark-environment
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      redpanda-init:
+        condition: service_completed_successfully
+    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  spark-streaming-prediction:
+    image: bnpl-spark:3.5.1
+    container_name: bnpl-spark-streaming-prediction
+    profiles: [inference]
+    command:
+      - /opt/bitnami/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --packages
+      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      - /opt/bitnami/spark/app/jobs/streaming_predict.py
+    environment: *spark-environment
+    depends_on:
+      postgres-schema-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  airflow-init:
+    build: ./airflow
+    image: bnpl-airflow-spark:2.9.2
+    container_name: bnpl-airflow-init
+    command: version
+    depends_on:
+      postgres-schema-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-environment
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    user: "${AIRFLOW_UID}:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./spark:/opt/airflow/spark:ro
+    networks: [bnpl-network]
+
+  airflow-webserver:
+    image: bnpl-airflow-spark:2.9.2
+    container_name: bnpl-airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+    environment: *airflow-environment
+    user: "${AIRFLOW_UID}:0"
+    ports: ["8088:8080"]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./spark:/opt/airflow/spark:ro
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  airflow-scheduler:
+    image: bnpl-airflow-spark:2.9.2
+    container_name: bnpl-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: scheduler
+    environment: *airflow-environment
+    user: "${AIRFLOW_UID}:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./spark:/opt/airflow/spark:ro
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+volumes:
+  postgres_data:
+  minio_data:
+  redpanda_data:
+
+networks:
+  bnpl-network:
+    name: bnpl-network
