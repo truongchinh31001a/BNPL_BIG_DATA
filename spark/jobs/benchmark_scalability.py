@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+from math import ceil
 from pathlib import Path
 
 SPARK_ROOT = str(Path(__file__).resolve().parents[1])
@@ -10,6 +11,7 @@ if SPARK_ROOT not in sys.path:
     sys.path.insert(0, SPARK_ROOT)
 
 from pyspark.sql import functions as F
+from pyspark.storagelevel import StorageLevel
 
 from bnpl_common import create_spark, delta_upsert, lake_path
 
@@ -24,10 +26,36 @@ def main() -> None:
 
     spark = create_spark(f"bnpl-benchmark-{size}-{workers}-{run_number}-{mode}")
     started = time.perf_counter()
-    source = spark.read.format("delta").load(lake_path("gold/ml/ml_bnpl_features"))
-    sample = source.limit(size)
+    source = (
+        spark.read.format("delta")
+        .load(lake_path("gold/ml/ml_bnpl_features"))
+        .select(
+            "transaction_id",
+            "provider",
+            "customer_state",
+            "merchant_category",
+            "principal_ngn",
+            "credit_score",
+        )
+    )
+    source_count = source.count()
+    if source_count == 0:
+        raise ValueError("Benchmark source is empty")
+
+    replica_count = ceil(size / source_count)
+    replicas = F.broadcast(spark.range(replica_count).withColumnRenamed("id", "_replica"))
+    sample = (
+        source.crossJoin(replicas)
+        .withColumn(
+            "transaction_id",
+            F.concat_ws("_B", "transaction_id", F.col("_replica")),
+        )
+        .drop("_replica")
+        .limit(size)
+    )
     if mode == "incremental":
         sample = sample.filter(F.pmod(F.xxhash64("transaction_id"), F.lit(4)) == 0)
+    sample = sample.persist(StorageLevel.DISK_ONLY)
     input_count = sample.count()
 
     provider_totals = sample.groupBy("provider").agg(
@@ -58,6 +86,7 @@ def main() -> None:
         ["dataset_size", "worker_count", "run_number", "processing_mode"],
     )
     result.show(truncate=False)
+    sample.unpersist()
     spark.stop()
 
 

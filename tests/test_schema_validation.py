@@ -48,3 +48,20 @@ def test_streaming_schema_parses_label_free_event(spark):
     parsed = frame.select(F.from_json("value", KAFKA_EVENT_SCHEMA).alias("event")).first().event
     assert parsed.transaction_id == "TX-001"
     assert "default_30d" not in parsed.asDict()
+
+
+def test_label_free_streaming_events_pass_or_quarantine(spark):
+    valid = valid_event(transaction_id="TX-STREAM-VALID")
+    invalid = valid_event(transaction_id="TX-STREAM-INVALID", credit_score=999)
+    for event in (valid, invalid):
+        event.pop("default_30d")
+        event.pop("default_90d")
+
+    rows = {
+        row.transaction_id: row
+        for row in validate(spark, [valid, invalid]).collect()
+    }
+
+    assert rows["TX-STREAM-VALID"]._validation_status == "PASS"
+    assert rows["TX-STREAM-INVALID"]._validation_status == "FAIL"
+    assert "invalid_credit_score" in rows["TX-STREAM-INVALID"]._validation_errors

@@ -37,6 +37,7 @@ Kafka là transport layer, không phải Bronze. Airflow chỉ orchestrate batch
 - Redpanda (Kafka-compatible), Airflow 2.9.2
 - MinIO: Bronze Parquet; Silver và Gold Delta Lake 3.2
 - PostgreSQL 16 làm serving/data warehouse cho Power BI
+- Redpanda Console, Prometheus và Grafana cho quan sát vận hành
 - Docker Compose với 1 Spark master và service worker có thể scale bằng `SPARK_WORKER_REPLICAS`
 
 Delta Lake 3.2 được chọn vì tương thích với Spark 3.5; global automatic schema evolution bị tắt.
@@ -52,6 +53,8 @@ spark/jobs/01_ingest.py ... 10_load_postgres.py
 spark/jobs/streaming_kafka_to_bronze.py
 spark/jobs/streaming_predict.py
 sql/                                      Serving, DQ and batch-registry schemas
+monitoring/                               Prometheus rules và Grafana provisioning
+.github/workflows/tests.yml               Docker-based CI tests
 tests/                                    Deterministic Spark transformation tests
 docs/                                     Architecture and runbooks
 ```
@@ -60,7 +63,8 @@ docs/                                     Architecture and runbooks
 
 - Docker Desktop và Docker Compose v2
 - Khuyến nghị tối thiểu 8 GB RAM dành cho Docker
-- Các port trống: `5432`, `8080`, `8088`, `9001`, `9002`, `19092`
+- Các port batch: `5432`, `8080`, `8088`, `9001`, `9002`
+- Các port optional: `19092`, `8089`, `9090`, `3000`
 
 ## Khởi động
 
@@ -81,6 +85,9 @@ Các endpoint:
 - MinIO API: http://localhost:9002; Console: http://localhost:9001
 - PostgreSQL: `localhost:5432`, database `bnpl_dw`
 - Kafka external bootstrap khi bật profile streaming: `localhost:19092`
+- Kafka UI khi bật streaming/monitoring: http://localhost:8089
+- Prometheus khi bật monitoring: http://localhost:9090
+- Grafana khi bật monitoring: http://localhost:3000
 
 `INGEST_MAX_ROWS=100000` trong `.env.example` phù hợp demo. Đặt `0` để ingest toàn bộ. Giới hạn được áp dụng riêng cho từng source.
 
@@ -91,7 +98,8 @@ Trigger DAG `bnpl_batch_pipeline` trong Airflow. Có thể truyền config:
 ```json
 {
   "batch_id": "batch_20260917_001",
-  "model_version": "v1"
+  "model_version": "v1",
+  "ingest_max_rows": 100000
 }
 ```
 
@@ -129,6 +137,20 @@ docker compose --profile streaming --profile inference up -d
 ```
 
 Prediction 30D và 90D được upsert vào `ml.predictions`. Event lỗi được giữ tại `rejected/streaming_transactions`.
+
+Redpanda Console cũng được bật tại http://localhost:8089 để xem topic, partitions, messages và consumer groups.
+
+## Monitoring
+
+Khởi động monitoring stack độc lập với batch mặc định:
+
+```bash
+docker compose --profile monitoring up -d
+```
+
+Prometheus scrape Redpanda public metrics, Spark master/applications và toàn bộ Spark workers qua Docker DNS. Grafana tự provision datasource cùng dashboard `BNPL Platform Overview`. Tài khoản demo mặc định là `admin` / `admin`; thay các giá trị `GRAFANA_ADMIN_*` trong `.env` khi dùng ngoài máy cá nhân.
+
+Chi tiết endpoint, alert và lệnh kiểm tra nằm trong [monitoring runbook](docs/monitoring.md).
 
 ## MinIO layout
 
@@ -170,8 +192,15 @@ Hoặc chạy bằng Spark Docker image:
 
 ```bash
 docker build -t bnpl-spark:3.5.1 ./spark
-docker run --rm -v "$PWD:/workspace" -w /workspace bnpl-spark:3.5.1 python -m pytest -q tests
+docker run --rm \
+  -e PYTHONPATH=/workspace/spark:/opt/bitnami/spark/python:/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip \
+  -v "$PWD:/workspace" -w /workspace \
+  bnpl-spark:3.5.1 python -m pytest -q tests
 ```
+
+Trên PowerShell thay dấu nối dòng `\` bằng backtick (`` ` ``); giữ nguyên giá trị `PYTHONPATH` ở trên.
+
+GitHub Actions chạy cùng Docker test command trên mọi push và pull request bằng workflow `.github/workflows/tests.yml`.
 
 ## Benchmark
 
@@ -185,6 +214,14 @@ BENCHMARK_MODE=full|incremental
 ```
 
 Kết quả được ghi idempotently vào Delta `benchmarks/results`. Xem [benchmark runbook](docs/benchmark.md).
+
+Chạy toàn bộ ma trận chuẩn trên PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_benchmark_matrix.ps1
+```
+
+Kết quả chạy thật, CSV và biểu đồ nằm trong [P1 evidence](docs/p1_evidence.md).
 
 ## Troubleshooting
 

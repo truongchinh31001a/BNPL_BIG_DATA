@@ -1,0 +1,14 @@
+model Model
+	culture: en-US
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: en-US
+	discourageImplicitMeasures
+
+expression Server = "localhost:5432" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+expression Database = "bnpl_dw" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+ref table Transactions
+ref table Predictions
+ref table 'Model Metrics'
+ref table 'Data Quality'
+ref table 'Batch Registry'

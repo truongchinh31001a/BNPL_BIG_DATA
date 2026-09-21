@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from airflow import DAG
@@ -24,10 +25,16 @@ SPARK_SUBMIT = (
     "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog "
     "/opt/airflow/spark/jobs/{job}"
 )
+DEFAULT_INGEST_MAX_ROWS = int(os.getenv("INGEST_MAX_ROWS", "0"))
 RUN_ENV = {
     "PIPELINE_RUN_ID": "{{ run_id }}",
     "BATCH_ID": "{{ dag_run.conf.get('batch_id', ds_nodash) }}",
     "MODEL_VERSION": "{{ dag_run.conf.get('model_version', 'v1') }}",
+    "INGEST_MAX_ROWS": (
+        "{{ dag_run.conf.get('ingest_max_rows', "
+        f"{DEFAULT_INGEST_MAX_ROWS}"
+        ") }}"
+    ),
 }
 
 

@@ -1,0 +1,52 @@
+table 'Batch Registry'
+
+	measure 'Batch Rows' = SUM('Batch Registry'[row_count])
+		formatString: #,##0
+
+	column batch_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: batch_id
+
+	column source
+		dataType: string
+		summarizeBy: none
+		sourceColumn: source
+
+	column row_count
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: row_count
+
+	column status
+		dataType: string
+		summarizeBy: none
+		sourceColumn: status
+
+	column bronze_status
+		dataType: string
+		summarizeBy: none
+		sourceColumn: bronze_status
+
+	column silver_status
+		dataType: string
+		summarizeBy: none
+		sourceColumn: silver_status
+
+	column gold_status
+		dataType: string
+		summarizeBy: none
+		sourceColumn: gold_status
+
+	column processed_at
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: processed_at
+
+	partition 'Batch Registry' = m
+		mode: import
+		source =
+			let
+				Source = PostgreSQL.Database(Server, Database, [CreateNavigationProperties=false, Query="select batch_id, source, row_count, status, bronze_status, silver_status, gold_status, processed_at from pipeline.pipeline_batches"])
+			in
+				Source

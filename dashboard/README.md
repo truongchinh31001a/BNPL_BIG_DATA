@@ -1,4 +1,19 @@
-# Power BI serving guide
+# Power BI dashboard
+
+Project đã tạo: `BNPL Big Data Report.pbip`.
+
+Mở project bằng Power BI Desktop, chọn **Refresh now**, sau đó nhập PostgreSQL credential từ `.env` ở lần kết nối đầu tiên. Semantic model dùng Import mode và không lưu password trong source control.
+
+Kiểm tra cấu trúc report trước khi mở:
+
+```powershell
+node scripts/generate_powerbi_project.mjs
+powerbi-report-author validate "dashboard/BNPL Big Data Report.Report"
+```
+
+Ảnh kiểm chứng 5 trang nằm tại `docs/evidence/powerbi/`.
+
+## Kết nối
 
 Kết nối Power BI tới PostgreSQL:
 
@@ -14,7 +29,7 @@ Các views/tables khuyến nghị:
 - Model monitoring: `ml.model_metrics`
 - Data quality: `data_quality.data_quality_metrics`
 
-Dashboard pages:
+## Dashboard pages
 
 1. Overview: total transactions, total amount, average loan, 30D/90D default rates.
 2. Risk Analysis: default theo credit band, loan size, provider, merchant category.

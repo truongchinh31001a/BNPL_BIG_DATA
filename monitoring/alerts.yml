@@ -1,0 +1,20 @@
+groups:
+  - name: bnpl-platform
+    rules:
+      - alert: BnplServiceDown
+        expr: up{job=~"redpanda|spark-master|spark-workers"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BNPL platform target is unavailable"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }}."
+
+      - alert: RedpandaBrokerUnavailable
+        expr: redpanda_cluster_brokers < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No commissioned Redpanda broker"
+          description: "The Redpanda cluster currently reports fewer than one broker."

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "BNPL Big Data Report"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "3ef6eb40-ad28-3f0c-407e-0b69b6cabb32"
+  }
+}

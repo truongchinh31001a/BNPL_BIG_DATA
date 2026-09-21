@@ -69,7 +69,7 @@ services:
     networks: [bnpl-network]
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: bnpl-minio
     command: server /data --console-address ":9001"
     environment:
@@ -85,7 +85,7 @@ services:
     networks: [bnpl-network]
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     container_name: bnpl-minio-init
     depends_on:
       minio:
@@ -98,7 +98,7 @@ services:
   redpanda:
     image: redpandadata/redpanda:v24.2.18
     container_name: bnpl-redpanda
-    profiles: [streaming, inference]
+    profiles: [streaming, inference, monitoring]
     command:
       - redpanda
       - start
@@ -128,11 +128,26 @@ services:
   redpanda-init:
     image: redpandadata/redpanda:v24.2.18
     container_name: bnpl-redpanda-init
-    profiles: [streaming, inference]
+    profiles: [streaming, inference, monitoring]
     depends_on:
       redpanda:
         condition: service_healthy
     entrypoint: /bin/sh -c "rpk topic create ${KAFKA_TOPIC} -X brokers=redpanda:9092 || true;"
+    networks: [bnpl-network]
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v3.12.0
+    container_name: bnpl-redpanda-console
+    profiles: [streaming, inference, monitoring]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    ports: ["${KAFKA_UI_PORT:-8089}:8080"]
+    restart: unless-stopped
     networks: [bnpl-network]
 
   fake-bnpl-producer:
@@ -164,7 +179,9 @@ services:
       SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
       SPARK_SSL_ENABLED: "no"
     ports: ["7077:7077", "8080:8080"]
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - ./spark/conf/metrics.properties:/opt/bitnami/spark/conf/metrics.properties:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/$$(hostname)/7077'"]
       interval: 10s
@@ -180,12 +197,29 @@ services:
       SPARK_MASTER_URL: spark://spark-master:7077
       SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
       SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_WORKER_OPTS: >-
+        -Dspark.worker.cleanup.enabled=true
+        -Dspark.worker.cleanup.interval=60
+        -Dspark.worker.cleanup.appDataTtl=300
     depends_on:
       spark-master:
         condition: service_healthy
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - ./spark/conf/metrics.properties:/opt/bitnami/spark/conf/metrics.properties:ro
     deploy:
       replicas: ${SPARK_WORKER_REPLICAS:-2}
+    networks: [bnpl-network]
+
+  spark-ivy-init:
+    image: bnpl-spark:3.5.1
+    profiles: [streaming, inference]
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["mkdir -p /opt/bitnami/spark/.ivy2/cache /opt/bitnami/spark/.ivy2/jars && chown -R 1001:0 /opt/bitnami/spark/.ivy2"]
+    volumes:
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
+    restart: "no"
     networks: [bnpl-network]
 
   spark-streaming-job:
@@ -196,6 +230,10 @@ services:
       - /opt/bitnami/spark/bin/spark-submit
       - --master
       - spark://spark-master:7077
+      - --conf
+      - spark.cores.max=2
+      - --conf
+      - spark.executor.cores=1
       - --packages
       - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
       - /opt/bitnami/spark/app/jobs/streaming_kafka_to_bronze.py
@@ -203,11 +241,15 @@ services:
     depends_on:
       spark-master:
         condition: service_healthy
+      spark-ivy-init:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
       redpanda-init:
         condition: service_completed_successfully
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
     restart: unless-stopped
     networks: [bnpl-network]
 
@@ -219,6 +261,10 @@ services:
       - /opt/bitnami/spark/bin/spark-submit
       - --master
       - spark://spark-master:7077
+      - --conf
+      - spark.cores.max=2
+      - --conf
+      - spark.executor.cores=1
       - --packages
       - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
       - /opt/bitnami/spark/app/jobs/streaming_predict.py
@@ -228,9 +274,13 @@ services:
         condition: service_completed_successfully
       spark-master:
         condition: service_healthy
+      spark-ivy-init:
+        condition: service_completed_successfully
       redpanda-init:
         condition: service_completed_successfully
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
     restart: unless-stopped
     networks: [bnpl-network]
 
@@ -295,10 +345,54 @@ services:
     restart: unless-stopped
     networks: [bnpl-network]
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: bnpl-prometheus
+    profiles: [monitoring]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: bnpl-grafana
+    profiles: [monitoring]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_DISABLE_PLUGINS: xychart
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+    networks: [bnpl-network]
+
 volumes:
   postgres_data:
   minio_data:
   redpanda_data:
+  spark_ivy_cache:
+  prometheus_data:
+  grafana_data:
 
 networks:
   bnpl-network:

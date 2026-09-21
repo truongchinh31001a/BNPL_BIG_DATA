@@ -23,6 +23,8 @@
 - Bronze dùng Parquet; Silver/Gold dùng Delta MERGE với automatic schema evolution tắt.
 - Shared package `spark/bnpl_common` quản lý config, Spark, schemas, validation, feature logic, Delta và PostgreSQL metadata.
 - Rejected records, DQ metrics, batch registry, 30D/90D models và model registry được bổ sung.
+- Redpanda Console phục vụ demo topic; Prometheus/Grafana theo dõi Redpanda và Spark qua profile riêng.
+- GitHub Actions chạy bộ Spark tests bằng cùng Docker image với môi trường local.
 - Legacy job names tương thích được giữ dưới dạng wrapper. Historical-to-Kafka job cũ bị loại vì xung đột kiến trúc rõ ràng.
 
 ## Component view
@@ -38,6 +40,9 @@ Fake producer -> Redpanda -> Spark streaming -> MinIO Bronze Parquet
                                       |
                                       +-> shared validation/features
                                           -> saved models -> PostgreSQL
+
+Redpanda/Spark metrics -> Prometheus -> Grafana
+Redpanda topic metadata/messages -> Redpanda Console
 ```
 
 ## Storage decisions

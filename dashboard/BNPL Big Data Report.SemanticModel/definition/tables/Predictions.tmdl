@@ -1,0 +1,45 @@
+table Predictions
+
+	measure 'Streaming Events' = SUM(Predictions[transaction_count])
+		formatString: #,##0
+
+	measure 'Average Risk Probability' = AVERAGE(Predictions[average_default_probability])
+		formatString: 0.00%
+
+	column prediction_horizon
+		dataType: string
+		summarizeBy: none
+		sourceColumn: prediction_horizon
+
+	column risk_level
+		dataType: string
+		summarizeBy: none
+		sourceColumn: risk_level
+
+	column predicted_default
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: predicted_default
+
+	column transaction_count
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: transaction_count
+
+	column average_default_probability
+		dataType: double
+		summarizeBy: average
+		sourceColumn: average_default_probability
+
+	column latest_prediction_at
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: latest_prediction_at
+
+	partition Predictions = m
+		mode: import
+		source =
+			let
+				Source = PostgreSQL.Database(Server, Database, [CreateNavigationProperties=false, Query="select prediction_horizon, risk_level, predicted_default, transaction_count, average_default_probability, latest_prediction_at from ml.vw_prediction_monitoring"])
+			in
+				Source

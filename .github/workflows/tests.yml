@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  spark-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
+      - name: Build Spark test image
+        run: docker build -t bnpl-spark-ci:3.5.1 ./spark
+
+      - name: Run tests
+        run: |
+          docker run --rm \
+            -e PYTHONPATH=/workspace/spark:/opt/bitnami/spark/python:/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            bnpl-spark-ci:3.5.1 python -m pytest -q tests
