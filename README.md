@@ -34,7 +34,7 @@ Kafka là transport layer, không phải Bronze. Airflow chỉ orchestrate batch
 ## Công nghệ
 
 - Python, PySpark 3.5.1, Spark SQL, Spark MLlib và Structured Streaming
-- Redpanda (Kafka-compatible), Airflow 2.9.2
+- Apache Kafka 3.9.1 (KRaft), Airflow 2.9.2
 - MinIO: Bronze Parquet; Silver và Gold Delta Lake 3.2
 - PostgreSQL 16 làm serving/data warehouse cho Power BI
 - Docker Compose với 1 Spark master và service worker có thể scale bằng `SPARK_WORKER_REPLICAS`
@@ -72,7 +72,7 @@ docker compose ps
 
 Trên PowerShell dùng `Copy-Item .env.example .env` thay cho `cp`.
 
-Lệnh mặc định chỉ bật batch stack. Redpanda, fake producer và streaming consumer nằm trong profile `streaming`, nên không chiếm tài nguyên khi chỉ chạy Airflow batch.
+Lệnh mặc định chỉ bật batch stack. Apache Kafka, fake producer và streaming consumer nằm trong profile `streaming`, nên không chiếm tài nguyên khi chỉ chạy Airflow batch.
 
 Các endpoint:
 
@@ -121,6 +121,7 @@ Profile này chạy:
 
 - `fake-bnpl-producer`: tạo event không có `default_30d/default_90d`.
 - `spark-streaming-job`: đọc Kafka và lưu raw event + Kafka metadata vào Bronze Parquet.
+- `spark-streaming-prediction` (profile `inference`): đọc file Bronze mới, chạy quality gate và shared features, rồi ghi dự báo vào PostgreSQL; không đọc Kafka trực tiếp.
 
 Sau khi batch pipeline đã tạo model registry, bật inference:
 
@@ -129,6 +130,8 @@ docker compose --profile streaming --profile inference up -d
 ```
 
 Prediction 30D và 90D được upsert vào `ml.predictions`. Event lỗi được giữ tại `rejected/streaming_transactions`.
+
+Luồng đầy đủ: Fake BNPL Producer → Apache Kafka → Spark Structured Streaming → Bronze Parquet → Validation / Quality Gate → Shared Feature Engineering → Saved 30D + 90D Models → PostgreSQL Predictions → Power BI.
 
 ## MinIO layout
 
@@ -175,16 +178,15 @@ docker run --rm -v "$PWD:/workspace" -w /workspace bnpl-spark:3.5.1 python -m py
 
 ## Benchmark
 
-Job `spark/jobs/benchmark_scalability.py` hỗ trợ các biến:
+Scalability benchmark `spark/jobs/benchmark_scalability.py` đo workload đọc/lọc/group/join/ghi theo kích thước và số worker:
 
 ```text
 BENCHMARK_SIZE=100000|500000|1000000|2000000
 BENCHMARK_WORKER_COUNT=1|2
 BENCHMARK_RUN_NUMBER=1..N
-BENCHMARK_MODE=full|incremental
 ```
 
-Kết quả được ghi idempotently vào Delta `benchmarks/results`. Xem [benchmark runbook](docs/benchmark.md).
+Kết quả nằm ở Delta `benchmarks/results`. Job riêng `spark/jobs/benchmark_incremental.py` so sánh full reload với cập nhật Delta MERGE theo `transaction_id`, lưu vào `benchmarks/incremental_results`; baseline được chuẩn bị ngoài thời gian đo. Xem [benchmark runbook](docs/benchmark.md).
 
 ## Troubleshooting
 

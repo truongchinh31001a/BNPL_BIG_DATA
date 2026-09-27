@@ -88,7 +88,7 @@ def get_settings() -> Settings:
         postgres_db=os.getenv("POSTGRES_DB", "bnpl_dw"),
         postgres_user=os.getenv("POSTGRES_USER", "bnpl"),
         postgres_password=os.getenv("POSTGRES_PASSWORD", "bnpl_password"),
-        kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092"),
+        kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
         kafka_topic=os.getenv("KAFKA_TOPIC", "bnpl.transactions.raw"),
         dataset_ids=dataset_ids,
         source_dataset_id=os.getenv("BNPL_SOURCE_DATASET_ID", DEFAULT_BNPL_DATASET_ID),

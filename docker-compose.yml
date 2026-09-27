@@ -16,7 +16,7 @@ x-airflow-environment: &airflow-environment
   POSTGRES_DB: ${POSTGRES_DB}
   POSTGRES_USER: ${POSTGRES_USER}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   KAFKA_TOPIC: ${KAFKA_TOPIC}
   PIPELINE_REGISTRY_ENABLED: ${PIPELINE_REGISTRY_ENABLED:-true}
 
@@ -30,7 +30,7 @@ x-spark-environment: &spark-environment
   POSTGRES_DB: ${POSTGRES_DB}
   POSTGRES_USER: ${POSTGRES_USER}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   KAFKA_TOPIC: ${KAFKA_TOPIC}
 
 services:
@@ -95,44 +95,56 @@ services:
       mc mb -p local/${MINIO_BUCKET} || true;"
     networks: [bnpl-network]
 
-  redpanda:
-    image: redpandadata/redpanda:v24.2.18
-    container_name: bnpl-redpanda
+  kafka-volume-init:
+    image: apache/kafka:3.9.1
     profiles: [streaming, inference]
-    command:
-      - redpanda
-      - start
-      - --overprovisioned
-      - --smp
-      - "1"
-      - --memory
-      - 1G
-      - --reserve-memory
-      - 0M
-      - --node-id
-      - "0"
-      - --check=false
-      - --kafka-addr
-      - internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:19092
-    ports: ["19092:19092", "9644:9644"]
-    volumes: ["redpanda_data:/var/lib/redpanda/data"]
+    user: "0:0"
+    entrypoint: ["chown"]
+    command: ["-R", "1000:1000", "/kafka-data"]
+    volumes: ["kafka_data:/kafka-data"]
+    networks: [bnpl-network]
+
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: bnpl-kafka
+    profiles: [streaming, inference]
+    depends_on:
+      kafka-volume-init:
+        condition: service_completed_successfully
+    environment:
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    ports: ["19092:19092"]
+    volumes: ["kafka_data:/tmp/kraft-combined-logs"]
     healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health -X brokers=localhost:9092 | grep -q 'Healthy:.*true'"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 30s
     networks: [bnpl-network]
 
-  redpanda-init:
-    image: redpandadata/redpanda:v24.2.18
-    container_name: bnpl-redpanda-init
+  kafka-init:
+    image: apache/kafka:3.9.1
+    container_name: bnpl-kafka-init
     profiles: [streaming, inference]
     depends_on:
-      redpanda:
+      kafka:
         condition: service_healthy
-    entrypoint: /bin/sh -c "rpk topic create ${KAFKA_TOPIC} -X brokers=redpanda:9092 || true;"
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command: ["--bootstrap-server", "kafka:9092", "--create", "--if-not-exists", "--topic", "${KAFKA_TOPIC}", "--partitions", "1", "--replication-factor", "1"]
     networks: [bnpl-network]
 
   fake-bnpl-producer:
@@ -141,10 +153,10 @@ services:
     container_name: bnpl-fake-producer
     profiles: [streaming]
     depends_on:
-      redpanda-init:
+      kafka-init:
         condition: service_completed_successfully
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC}
       FAKE_EVENTS_PER_SECOND: ${FAKE_EVENTS_PER_SECOND:-2}
       FAKE_INVALID_RATE: ${FAKE_INVALID_RATE:-0.02}
@@ -191,7 +203,7 @@ services:
   spark-streaming-job:
     image: bnpl-spark:3.5.1
     container_name: bnpl-spark-streaming
-    profiles: [streaming]
+    profiles: [streaming, inference]
     command:
       - /opt/bitnami/spark/bin/spark-submit
       - --master
@@ -205,7 +217,7 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-      redpanda-init:
+      kafka-init:
         condition: service_completed_successfully
     volumes: ["./spark:/opt/bitnami/spark/app:ro"]
     restart: unless-stopped
@@ -220,7 +232,7 @@ services:
       - --master
       - spark://spark-master:7077
       - --packages
-      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262
       - /opt/bitnami/spark/app/jobs/streaming_predict.py
     environment: *spark-environment
     depends_on:
@@ -228,8 +240,8 @@ services:
         condition: service_completed_successfully
       spark-master:
         condition: service_healthy
-      redpanda-init:
-        condition: service_completed_successfully
+      spark-streaming-job:
+        condition: service_started
     volumes: ["./spark:/opt/bitnami/spark/app:ro"]
     restart: unless-stopped
     networks: [bnpl-network]
@@ -298,7 +310,7 @@ services:
 volumes:
   postgres_data:
   minio_data:
-  redpanda_data:
+  kafka_data:
 
 networks:
   bnpl-network:

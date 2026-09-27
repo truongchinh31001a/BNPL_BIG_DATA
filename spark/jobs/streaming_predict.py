@@ -1,6 +1,7 @@
 """Near-real-time inference using the selected 30D and 90D Spark models."""
 
 import sys
+import time
 from pathlib import Path
 
 SPARK_ROOT = str(Path(__file__).resolve().parents[1])
@@ -12,7 +13,7 @@ from pyspark.ml.functions import vector_to_array
 from pyspark.ml.pipeline import PipelineModel
 from pyspark.sql import functions as F
 
-from bnpl_common import add_bnpl_features, apply_quality_gate, create_spark, get_settings, lake_path, parse_bronze_events
+from bnpl_common import BRONZE_STREAMING_SCHEMA, add_bnpl_features, apply_quality_gate, create_spark, lake_path, parse_bronze_events
 from bnpl_common.postgres import postgres_connection
 
 
@@ -35,29 +36,27 @@ def _write_predictions(rows: list[tuple]) -> None:
         execute_values(cursor, statement, rows)
 
 
+def _wait_for_bronze(spark, path: str, attempts: int = 30, interval_seconds: int = 2) -> None:
+    """Wait a bounded time for the Bronze output path, then retry via Compose."""
+
+    bronze_path = spark._jvm.org.apache.hadoop.fs.Path(path)
+    filesystem = bronze_path.getFileSystem(spark._jsc.hadoopConfiguration())
+    for attempt in range(attempts):
+        if filesystem.exists(bronze_path):
+            return
+        if attempt < attempts - 1:
+            time.sleep(interval_seconds)
+    raise TimeoutError(f"Bronze streaming path did not appear: {path}")
+
+
 def main() -> None:
-    settings = get_settings()
     spark = create_spark("bnpl-streaming-prediction")
     registry = spark.read.format("delta").load(lake_path("gold/ml/model_registry")).collect()
     models = [(row, PipelineModel.load(row.model_path)) for row in registry]
 
-    kafka = (
-        spark.readStream.format("kafka")
-        .option("kafka.bootstrap.servers", settings.kafka_bootstrap_servers)
-        .option("subscribe", settings.kafka_topic)
-        .option("startingOffsets", "earliest")
-        .option("failOnDataLoss", "false")
-        .load()
-        .select(
-            F.col("key").cast("string").alias("message_key"),
-            F.col("value").cast("string").alias("value"),
-            F.col("timestamp").alias("_ingested_at"),
-            F.lit("kafka").alias("_source"),
-            F.lit("stream").alias("_ingestion_type"),
-            F.lit(None).cast("string").alias("_source_dataset"),
-            F.lit(None).cast("string").alias("_source_split"),
-        )
-    )
+    bronze_path = lake_path("bronze/streaming_transactions")
+    _wait_for_bronze(spark, bronze_path)
+    bronze = spark.readStream.schema(BRONZE_STREAMING_SCHEMA).parquet(bronze_path)
 
     def predict_batch(batch, epoch_id: int) -> None:
         if batch.rdd.isEmpty():
@@ -98,8 +97,8 @@ def main() -> None:
         validated.unpersist()
 
     query = (
-        kafka.writeStream.foreachBatch(predict_batch)
-        .option("checkpointLocation", lake_path("_checkpoints/streaming_prediction"))
+        bronze.writeStream.foreachBatch(predict_batch)
+        .option("checkpointLocation", lake_path("_checkpoints/bronze_to_prediction_v1"))
         .trigger(processingTime="10 seconds")
         .start()
     )

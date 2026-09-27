@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from kafka import KafkaProducer
 
 
-BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
+BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "bnpl.transactions.raw")
 EVENTS_PER_SECOND = max(float(os.getenv("FAKE_EVENTS_PER_SECOND", "2")), 0.01)
 INVALID_RATE = min(max(float(os.getenv("FAKE_INVALID_RATE", "0.02")), 0.0), 1.0)

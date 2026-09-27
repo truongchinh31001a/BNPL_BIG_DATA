@@ -18,16 +18,10 @@ def main() -> None:
     size = int(os.getenv("BENCHMARK_SIZE", "100000"))
     workers = int(os.getenv("BENCHMARK_WORKER_COUNT", "2"))
     run_number = int(os.getenv("BENCHMARK_RUN_NUMBER", "1"))
-    mode = os.getenv("BENCHMARK_MODE", "full").lower()
-    if mode not in {"full", "incremental"}:
-        raise ValueError("BENCHMARK_MODE must be full or incremental")
-
-    spark = create_spark(f"bnpl-benchmark-{size}-{workers}-{run_number}-{mode}")
+    spark = create_spark(f"bnpl-scalability-{size}-{workers}-{run_number}")
     started = time.perf_counter()
     source = spark.read.format("delta").load(lake_path("gold/ml/ml_bnpl_features"))
     sample = source.limit(size)
-    if mode == "incremental":
-        sample = sample.filter(F.pmod(F.xxhash64("transaction_id"), F.lit(4)) == 0)
     input_count = sample.count()
 
     provider_totals = sample.groupBy("provider").agg(
@@ -44,11 +38,11 @@ def main() -> None:
         .join(provider_totals, "provider")
     )
     workload.write.mode("overwrite").parquet(
-        lake_path(f"benchmarks/output/{mode}/{size}/{workers}/{run_number}")
+        lake_path(f"benchmarks/output/full/{size}/{workers}/{run_number}")
     )
     runtime = time.perf_counter() - started
     result = spark.createDataFrame(
-        [(size, input_count, workers, run_number, mode, runtime, input_count / runtime if runtime else 0.0)],
+        [(size, input_count, workers, run_number, "full", runtime, input_count / runtime if runtime else 0.0)],
         ["dataset_size", "processed_records", "worker_count", "run_number", "processing_mode", "runtime_seconds", "records_per_second"],
     ).withColumn("created_at", F.current_timestamp())
     delta_upsert(

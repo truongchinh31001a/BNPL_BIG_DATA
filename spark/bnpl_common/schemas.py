@@ -5,9 +5,11 @@ from pyspark.sql.types import (
     DateType,
     DoubleType,
     IntegerType,
+    LongType,
     StringType,
     StructField,
     StructType,
+    TimestampType,
 )
 
 
@@ -52,6 +54,26 @@ KAFKA_EVENT_SCHEMA = StructType(
         StructField("provider", StringType(), False),
         StructField("credit_score", IntegerType(), False),
         StructField("first_time_customer", BooleanType(), False),
+    ]
+)
+
+# Exact persisted Parquet contract of streaming_kafka_to_bronze.py. Keep the
+# file-stream reader explicit; Spark must not infer a streaming file schema.
+BRONZE_STREAMING_SCHEMA = StructType(
+    [
+        StructField("message_key", StringType(), True),
+        StructField("value", StringType(), True),
+        StructField("_parsed_event", KAFKA_EVENT_SCHEMA, True),
+        StructField("_kafka_topic", StringType(), False),
+        StructField("_kafka_partition", IntegerType(), False),
+        StructField("_kafka_offset", LongType(), False),
+        StructField("_kafka_timestamp", TimestampType(), True),
+        StructField("_source", StringType(), False),
+        StructField("_ingestion_type", StringType(), False),
+        StructField("_source_dataset", StringType(), True),
+        StructField("_source_split", StringType(), True),
+        StructField("_ingested_at", TimestampType(), False),
+        StructField("_schema_parse_ok", BooleanType(), False),
     ]
 )
 
