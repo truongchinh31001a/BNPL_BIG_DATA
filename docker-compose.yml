@@ -7,6 +7,8 @@ x-airflow-environment: &airflow-environment
   HF_DATASET_SPLIT: ${HF_DATASET_SPLIT}
   INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE}
   INGEST_MAX_ROWS: ${INGEST_MAX_ROWS}
+  INGEST_STAGE_REUSE: ${INGEST_STAGE_REUSE:-true}
+  INGEST_OUTPUT_PARTITIONS: ${INGEST_OUTPUT_PARTITIONS:-4}
   MINIO_ENDPOINT: http://minio:9000
   MINIO_ROOT_USER: ${MINIO_ROOT_USER}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -18,9 +20,19 @@ x-airflow-environment: &airflow-environment
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
   KAFKA_TOPIC: ${KAFKA_TOPIC}
+  KAFKA_MAX_OFFSETS_PER_TRIGGER: ${KAFKA_MAX_OFFSETS_PER_TRIGGER:-50000}
+  STREAMING_TRIGGER_SECONDS: ${STREAMING_TRIGGER_SECONDS:-30}
+  STREAMING_WATERMARK: ${STREAMING_WATERMARK:-10 minutes}
+  STREAMING_BRONZE_PATH: ${STREAMING_BRONZE_PATH:-bronze/streaming_transactions_v2}
+  STREAMING_REJECTED_PATH: ${STREAMING_REJECTED_PATH:-rejected/streaming_transactions_v2}
+  STREAMING_CHECKPOINT_VERSION: ${STREAMING_CHECKPOINT_VERSION:-v2}
+  STREAMING_MAX_RECORDS_PER_FILE: ${STREAMING_MAX_RECORDS_PER_FILE:-100000}
+  POSTGRES_WRITE_BATCH_SIZE: ${POSTGRES_WRITE_BATCH_SIZE:-1000}
+  ENFORCE_HORIZON_MONOTONICITY: ${ENFORCE_HORIZON_MONOTONICITY:-true}
   PIPELINE_REGISTRY_ENABLED: ${PIPELINE_REGISTRY_ENABLED:-true}
 
 x-spark-environment: &spark-environment
+  PYTHONPATH: /opt/bitnami/spark/app
   MINIO_ENDPOINT: http://minio:9000
   MINIO_ROOT_USER: ${MINIO_ROOT_USER}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -32,6 +44,15 @@ x-spark-environment: &spark-environment
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
   KAFKA_TOPIC: ${KAFKA_TOPIC}
+  KAFKA_MAX_OFFSETS_PER_TRIGGER: ${KAFKA_MAX_OFFSETS_PER_TRIGGER:-50000}
+  STREAMING_TRIGGER_SECONDS: ${STREAMING_TRIGGER_SECONDS:-30}
+  STREAMING_WATERMARK: ${STREAMING_WATERMARK:-10 minutes}
+  STREAMING_BRONZE_PATH: ${STREAMING_BRONZE_PATH:-bronze/streaming_transactions_v2}
+  STREAMING_REJECTED_PATH: ${STREAMING_REJECTED_PATH:-rejected/streaming_transactions_v2}
+  STREAMING_CHECKPOINT_VERSION: ${STREAMING_CHECKPOINT_VERSION:-v2}
+  STREAMING_MAX_RECORDS_PER_FILE: ${STREAMING_MAX_RECORDS_PER_FILE:-100000}
+  POSTGRES_WRITE_BATCH_SIZE: ${POSTGRES_WRITE_BATCH_SIZE:-1000}
+  ENFORCE_HORIZON_MONOTONICITY: ${ENFORCE_HORIZON_MONOTONICITY:-true}
 
 services:
   postgres:
@@ -132,7 +153,15 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
-    entrypoint: /bin/sh -c "rpk topic create ${KAFKA_TOPIC} -X brokers=redpanda:9092 || true;"
+    entrypoint: >
+      /bin/sh -ec "rpk topic create ${KAFKA_TOPIC} --partitions ${KAFKA_TOPIC_PARTITIONS:-6} -X brokers=redpanda:9092 || true;
+      current=$$(rpk topic describe ${KAFKA_TOPIC} -p -X brokers=redpanda:9092 | tail -n +2 | wc -l);
+      target=${KAFKA_TOPIC_PARTITIONS:-6};
+      if [ $$current -lt $$target ]; then
+        additional=$$((target-current));
+        rpk topic add-partitions ${KAFKA_TOPIC} --num $$additional -X brokers=redpanda:9092;
+      fi;
+      rpk topic describe ${KAFKA_TOPIC} -p -X brokers=redpanda:9092"
     networks: [bnpl-network]
 
   redpanda-console:

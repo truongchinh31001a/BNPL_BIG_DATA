@@ -15,7 +15,7 @@ Quy ước:
 - [x] Spark UI, MinIO Console và Airflow UI truy cập được.
 - [x] Airflow nhận DAG `bnpl_batch_pipeline` và không có lỗi import.
 - [x] PostgreSQL đã có 4 schema nghiệp vụ, 10 bảng và 3 view phục vụ BI.
-- [x] Toàn bộ schema, validation, feature engineering và integration tests đã chạy: `10 passed`.
+- [x] Toàn bộ schema, validation, feature engineering, drift và integration tests đã chạy: `12 passed`.
 - [x] DAG `bnpl_batch_pipeline` đã chạy end-to-end thành công với run `p0_20260921_001`.
 - [x] Fact, dimensions, model metrics, Data Quality, batch registry và `ml.predictions` đã có dữ liệu.
 - [x] Streaming và inference profiles đã được kiểm chứng end-to-end.
@@ -261,3 +261,65 @@ docker compose --profile streaming --profile inference up -d
 # Test đã kiểm chứng trên Spark image
 docker run --rm -e PYTHONPATH=/workspace/spark:/opt/bitnami/spark/python:/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip -v "${PWD}:/workspace" -w /workspace bnpl-spark:3.5.1 python -m pytest -q tests
 ```
+
+## 9. P3 Big Data Hardening
+
+Mục tiêu P3 là xử lý các điểm nghẽn đã phát hiện khi đánh giá pipeline hiện tại. Đây là phần nâng cấp sau khi P0-P2 đã chạy ổn định, không phải điều kiện bắt buộc để demo phiên bản hiện tại.
+
+### 9.1. Batch ingestion và data layout
+
+- [x] **Ưu tiên cao:** stage nguồn thành nhiều file Parquet trên MinIO, sau đó để Spark đọc phân tán; không còn tạo DataFrame từ Python list trên driver.
+- [x] Chỉ đọc đúng đường dẫn `source_slug=.../batch_key=...` của batch cần xử lý; không còn recursive scan toàn bộ Bronze rồi mới filter.
+- [ ] Historical Bronze đã partition theo source và batch; bổ sung ngày nghiệp vụ khi dữ liệu mỗi batch lớn hơn đáng kể.
+- [ ] Ghi nhận riêng thời gian download, parse, Spark transform và write để xác định đúng bottleneck ingestion.
+- [ ] Kiểm chứng pipeline với tập nguồn lớn hơn 110,000 dòng; ưu tiên dữ liệu thực 2 triệu dòng thay vì chỉ nhân bản record trong benchmark.
+
+### 9.2. Streaming scalability và tính đúng đắn
+
+- [x] **Ưu tiên cao:** tăng topic `bnpl.transactions.raw` lên 6 partitions và cấu hình số partition bằng biến môi trường.
+- [ ] Đã xác nhận prediction đến từ đủ 6 Kafka partitions và Spark có 2 executors; vẫn cần lưu ảnh Spark UI cùng số liệu input rows/second.
+- [x] **Ưu tiên cao:** thay `scored.collect()` và ghi PostgreSQL tập trung tại driver bằng `foreachPartition` với batched upsert trên executors.
+- [x] Cấu hình `maxOffsetsPerTrigger` và processing-time trigger để kiểm soát kích thước micro-batch.
+- [x] Bổ sung event-time watermark và `dropDuplicatesWithinWatermark` theo `transaction_id`.
+- [ ] Quy định và kiểm thử late-event policy: event đúng hạn, event đến trễ trong watermark và event quá hạn.
+- [x] Kiểm thử restart/replay từ checkpoint và xác nhận PostgreSQL vẫn chỉ có đúng hai horizon cho mỗi transaction.
+- [x] Cập nhật tài liệu để mô tả rõ hai consumer độc lập hiện tại: Bronze archive và online prediction.
+
+### 9.3. Small files và vòng đời dữ liệu
+
+- [x] **Ưu tiên cao:** partition Streaming Bronze theo `event_date` và `event_hour`.
+- [x] Compaction đã giảm Streaming Bronze từ 15 xuống 6 files cho 14,029 rows và rejected từ 26 xuống 6 files cho 661 rows; layout P1 cũ từng có 448 files cho khoảng 9,594 events.
+- [x] Cấu hình `maxRecordsPerFile` và thời lượng trigger qua biến môi trường.
+- [x] Thêm job compaction cho Streaming Bronze/rejected Parquet và `OPTIMIZE` cho Delta tables được chọn.
+- [ ] Delta `VACUUM` đã có ngưỡng an toàn tối thiểu 168 giờ; retention/lifecycle cho Bronze, rejected, checkpoint và model artifacts vẫn cần cấu hình ở object storage.
+- [x] Chỉ cho phép `VACUUM` dưới 168 giờ khi bật cờ unsafe một cách tường minh.
+- [ ] Maintenance report đã có `file_count`, kích thước và số dòng trước-sau; còn thiếu `batch_duration` và tốc độ tăng dung lượng theo thời gian.
+
+### 9.4. Data realism và data drift
+
+- [x] Điều chỉnh fake producer theo phân phối historical: principal amount, credit score, provider, merchant category, tenor, lãi suất và first-time borrower.
+- [x] Mở rộng streaming generator từ 8 lên 37 bang.
+- [x] Tạo baseline từ historical Gold, tính PSI cho tám feature và lưu báo cáo drift vào Delta/DQ metrics.
+- [ ] Cảnh báo khi tỷ lệ missing, invalid, category mới hoặc phân phối feature vượt ngưỡng cho phép.
+- [x] Ép xác suất 90D không thấp hơn 30D và thêm view kiểm tra cả xác suất lẫn `prediction_30d <= prediction_90d`; kết quả kiểm tra có 0 vi phạm.
+- [x] Giữ auxiliary personal-loan dataset ở Bronze để truy vết, chưa đưa vào Silver/Gold vì chưa có mục tiêu phân tích phù hợp.
+
+### 9.5. Benchmark và bằng chứng scale
+
+- [x] Tách benchmark thành source read, sample preparation, transform/shuffle, output write và total; ghi kết quả theo phase vào Delta.
+- [ ] Bổ sung Kafka throughput benchmark theo số partitions, producer rate và số Spark executors.
+- [x] Bổ sung view PostgreSQL cho streaming latency p50, p95 và p99 theo horizon, gồm cả cửa sổ 15 phút gần nhất.
+- [ ] So sánh throughput trước và sau khi loại bỏ `collect()` khỏi streaming prediction.
+- [x] Ghi rõ benchmark hiện tại dùng hai workers trên cùng một Docker host và không đại diện cho multi-node physical scale-out.
+- [ ] Nếu có tài nguyên, chạy một benchmark trên nhiều máy/VM để tách ảnh hưởng tranh chấp CPU, RAM, network và MinIO.
+- [x] Lưu cấu hình, raw metrics và kết luận có thể tái lập trong `docs/p3_evidence.md`; biểu đồ có thể bổ sung sau khi có benchmark matrix dài hơn.
+
+### 9.6. Tiêu chí hoàn thành P3
+
+- [x] Không còn `collect()` trên đường xử lý streaming theo từng micro-batch.
+- [x] Kafka có 6 partitions; prediction rows ghi nhận đủ cả 6 partitions qua hai Spark executors.
+- [x] Streaming restart từ checkpoint không tạo duplicate prediction.
+- [ ] Có watermark, late-event test và event-time deduplication test chạy thành công.
+- [x] Số file nhỏ giảm rõ rệt sau partitioning/compaction và có số liệu trước-sau.
+- [x] Generator streaming có phân phối gần historical hơn và có báo cáo drift.
+- [x] Báo cáo phân biệt rõ logical distributed processing trên local Docker với physical multi-node scaling.

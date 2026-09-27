@@ -34,7 +34,7 @@ BENCHMARK_RUN_NUMBER=1
 BENCHMARK_MODE=full
 ```
 
-Kết quả Delta `benchmarks/results` gồm requested size, processed records, worker count, run number, mode, runtime seconds và records/second. Median nên được tính theo size/worker/mode sau khi loại warm-up nếu có.
+Kết quả Delta `benchmarks/results` gồm requested size, processed records, worker count, run number, mode, runtime seconds và records/second. `benchmarks/phase_results` tách thời gian thành `source_read`, `sample_preparation`, `transform_shuffle`, `output_write` và `total`. Median nên được tính theo size/worker/mode sau khi loại warm-up nếu có.
 
 Full mode xử lý toàn sample. Incremental mode dùng deterministic quarter partition theo transaction hash để so sánh workload cập nhật.
 
@@ -54,3 +54,5 @@ Kết quả đã kiểm chứng nằm tại:
 - `docs/p1_evidence.md`
 
 Spark workers bật automatic app cleanup với interval 60 giây và TTL 300 giây. Nếu Docker bị dừng cứng giữa benchmark, kiểm tra `docker system df -v`; tạo lại riêng worker sẽ giải phóng phần tạm mà không xóa named volume MinIO/PostgreSQL.
+
+Benchmark local dùng hai worker containers trên cùng một Docker host và chung MinIO/network. Nó chứng minh logical distributed execution và overhead theo worker count, không được diễn giải thành physical multi-node scale-out.
