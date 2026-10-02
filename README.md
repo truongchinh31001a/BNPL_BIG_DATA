@@ -31,11 +31,21 @@ Schema validation + Data Quality Gate                   v
 
 Kafka là transport layer, không phải Bronze. Airflow chỉ orchestrate batch pipeline; các Structured Streaming jobs chạy lâu dài dưới Docker Compose.
 
+```text
+Spark executors -> hdfs://namenode:8020/bnpl-data
+                         |
+             +-----------+-----------+
+             v           v           v
+        datanode-1   datanode-2   datanode-3
+        volume #1    volume #2    volume #3
+             \________ replication = 3 ________/
+```
+
 ## Công nghệ
 
 - Python, PySpark 3.5.1, Spark SQL, Spark MLlib và Structured Streaming
 - Apache Kafka 3.9.1 (KRaft), Airflow 2.9.2
-- HDFS 3.3.6: Bronze Parquet; Silver và Gold Delta Lake 3.2
+- HDFS 3.3.6: 1 NameNode + 3 DataNodes, replication factor 3; Bronze Parquet; Silver và Gold Delta Lake 3.2
 - PostgreSQL 16 làm serving/data warehouse cho Power BI
 - Prometheus và Grafana cho quan sát Spark
 - Docker Compose với 1 Spark master và service worker có thể scale bằng `SPARK_WORKER_REPLICAS`
@@ -62,8 +72,8 @@ docs/                                     Architecture and runbooks
 ## Yêu cầu
 
 - Docker Desktop và Docker Compose v2
-- Khuyến nghị tối thiểu 8 GB RAM dành cho Docker
-- Các port batch: `5432`, `8020`, `9864`, `9870`, `8080`, `8088`
+- Cấp tối thiểu 10 GB RAM cho batch stack; khuyến nghị 12 GB RAM khi chạy full stack hoặc job sinh 10 triệu dòng
+- Các port batch: `5432`, `8020`, `9864`, `9865`, `9866`, `9870`, `8080`, `8088`
 - Các port optional: `19092`, `9090`, `3000`
 
 ## Khởi động
@@ -72,6 +82,13 @@ docs/                                     Architecture and runbooks
 cp .env.example .env
 docker compose up -d --build
 docker compose ps
+docker compose exec -T namenode hdfs dfsadmin -report
+```
+
+Để nâng cụm cũ lên v2 và chờ HDFS sao chép dữ liệu hiện có sang đủ ba DataNodes mà không stream log giữa chừng:
+
+```bash
+python scripts/migrate_hdfs_v2.py
 ```
 
 Trên PowerShell dùng `Copy-Item .env.example .env` thay cho `cp`.
@@ -82,13 +99,29 @@ Các endpoint:
 
 - Airflow: http://localhost:8088 (`airflow` / giá trị trong `.env`)
 - Spark Master: http://localhost:8080
-- HDFS NameNode UI: http://localhost:9870; DataNode UI: http://localhost:9864
+- HDFS NameNode UI: http://localhost:9870
+- HDFS DataNode UI: http://localhost:9864, http://localhost:9865, http://localhost:9866
 - PostgreSQL: `localhost:5432`, database `bnpl_dw`
 - Kafka external bootstrap khi bật profile streaming: `localhost:19092`
 - Prometheus khi bật monitoring: http://localhost:9090
 - Grafana khi bật monitoring: http://localhost:3000
 
 `INGEST_MAX_ROWS=100000` trong `.env.example` phù hợp demo. Đặt `0` để ingest toàn bộ. Giới hạn được áp dụng riêng cho từng source.
+
+## Sinh 10 triệu dòng bằng PySpark
+
+Job `spark/jobs/12_generate_10m_bronze.py` dùng hoàn toàn Spark SQL expressions, không tạo dữ liệu bằng Python loop hoặc Hadoop MapReduce. Job ghi raw Parquet vào `bronze/generated_streaming_transactions/dataset_version=v2_10m`, partition theo `event_date/event_hour`:
+
+```bash
+python scripts/run_10m_generation.py
+```
+
+Kiểm tra sau khi job kết thúc:
+
+```bash
+docker compose exec -T namenode hdfs dfs -du -h /bnpl-data/bronze/generated_streaming_transactions
+docker compose exec -T namenode hdfs fsck /bnpl-data/bronze/generated_streaming_transactions
+```
 
 ## Batch pipeline
 
@@ -158,7 +191,8 @@ Mọi lake path nằm dưới `hdfs://namenode:8020/bnpl-data/`:
 
 ```text
 bronze/historical_transactions/           Parquet
-bronze/streaming_transactions/            Parquet
+bronze/streaming_transactions_v2/         Parquet, event_date/event_hour
+bronze/generated_streaming_transactions/  Parquet 10M, event_date/event_hour
 rejected/transactions/                    Parquet
 rejected/streaming_transactions/          Parquet
 silver/transactions/                      Delta

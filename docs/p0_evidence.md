@@ -105,7 +105,7 @@ Kết quả cho thấy accuracy cao chủ yếu do dữ liệu mất cân bằng
 
 ## HDFS lakehouse
 
-Lakehouse dùng `hdfs://namenode:8020/bnpl-data` với NameNode và DataNode có named volume riêng. Run `hdfs_20261002_001` hoàn thành cả 12 Airflow tasks ở trạng thái `success` ngày 02/10/2026.
+Lakehouse dùng `hdfs://namenode:8020/bnpl-data`. Run `hdfs_20261002_001` hoàn thành cả 12 Airflow tasks ở trạng thái `success` ngày 02/10/2026 và tạo bộ dữ liệu trong bảng dưới đây.
 
 | HDFS table | Format | Rows |
 |---|---|---:|
@@ -123,7 +123,7 @@ Lakehouse dùng `hdfs://namenode:8020/bnpl-data` với NameNode và DataNode có
 | Model metrics / registry / training runs | Delta | 6 / 2 / 6 |
 | Test sets 30D / 90D | Delta | 19,825 / 19,825 |
 
-HDFS logical sizes sau run: Bronze `25.7 MiB`, Silver `3.5 MiB`, Gold Analytics `8.1 MiB`, Gold ML `7.8 MiB` và Gold Shared `5.9 MiB`. Toàn bộ file được chuẩn hóa về replication factor 1, tương ứng với cụm local có một DataNode.
+HDFS logical sizes sau run: Bronze `25.7 MiB`, Silver `3.5 MiB`, Gold Analytics `8.1 MiB`, Gold ML `7.8 MiB` và Gold Shared `5.9 MiB`. Các số liệu này được thu trước khi cấu hình v2 chuyển sang ba DataNodes. Code v2 dùng ba volume độc lập và replication factor 3; cần chạy `python scripts/migrate_hdfs_v2.py` rồi lưu output `dfsadmin -report`/FSCK để thay bằng chứng hạ tầng cũ.
 
 Dataset `nigerian-banking-personal-loans` được lưu raw-only ở Bronze theo thiết kế, nên registry của source này có `bronze_status=SUCCESS`, còn `silver_status` và `gold_status` giữ `PENDING`. BNPL source chính có cả ba layer ở trạng thái `SUCCESS`.
 
@@ -150,4 +150,4 @@ Lệnh đã chạy:
 docker run --rm -e PYTHONPATH=/workspace/spark:/opt/bitnami/spark/python:/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip -v "${PWD}:/workspace" -w /workspace bnpl-spark:3.5.1 python -m pytest -q tests
 ```
 
-Kết quả kiểm tra cuối sau migration HDFS: `15 passed in 26.63s`.
+Kết quả kiểm tra code v2: `18 passed in 22.95s`.

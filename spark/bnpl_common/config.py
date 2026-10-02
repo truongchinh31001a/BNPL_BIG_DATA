@@ -19,6 +19,13 @@ def _integer(name: str, default: int) -> int:
     return value
 
 
+def _positive_integer(name: str, default: int) -> int:
+    value = _integer(name, default)
+    if value < 1:
+        raise ValueError(f"{name} must be greater than or equal to one")
+    return value
+
+
 def safe_identifier(value: str) -> str:
     """Return a value safe for HDFS partition and model paths."""
 
@@ -30,6 +37,7 @@ def safe_identifier(value: str) -> str:
 class Settings:
     hdfs_uri: str
     hdfs_base_path: str
+    hdfs_replication: int
     postgres_host: str
     postgres_port: int
     postgres_db: str
@@ -79,6 +87,7 @@ def get_settings() -> Settings:
     return Settings(
         hdfs_uri=os.getenv("HDFS_URI", "hdfs://namenode:8020").rstrip("/"),
         hdfs_base_path="/" + os.getenv("HDFS_BASE_PATH", "/bnpl-data").strip("/"),
+        hdfs_replication=_positive_integer("HDFS_REPLICATION", 3),
         postgres_host=os.getenv("POSTGRES_HOST", "postgres"),
         postgres_port=_integer("POSTGRES_PORT", 5432),
         postgres_db=os.getenv("POSTGRES_DB", "bnpl_dw"),

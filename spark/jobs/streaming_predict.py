@@ -54,7 +54,7 @@ def main() -> None:
     registry = spark.read.format("delta").load(lake_path("gold/ml/model_registry")).collect()
     models = [(row, PipelineModel.load(row.model_path)) for row in registry]
 
-    bronze_path = lake_path("bronze/streaming_transactions")
+    bronze_path = lake_path("bronze/streaming_transactions_v2")
     _wait_for_bronze(spark, bronze_path)
     bronze = spark.readStream.schema(BRONZE_STREAMING_SCHEMA).parquet(bronze_path)
 
@@ -98,7 +98,7 @@ def main() -> None:
 
     query = (
         bronze.writeStream.foreachBatch(predict_batch)
-        .option("checkpointLocation", lake_path("_checkpoints/bronze_to_prediction_v1"))
+        .option("checkpointLocation", lake_path("_checkpoints/bronze_to_prediction_v2"))
         .trigger(processingTime="10 seconds")
         .start()
     )

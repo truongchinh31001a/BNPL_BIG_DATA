@@ -14,6 +14,7 @@ def main() -> None:
         .appName("bnpl-hdfs-smoke")
         .config("spark.hadoop.fs.defaultFS", settings.hdfs_uri)
         .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+        .config("spark.hadoop.dfs.replication", str(settings.hdfs_replication))
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")

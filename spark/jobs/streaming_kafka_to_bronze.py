@@ -38,11 +38,18 @@ def main() -> None:
         F.lit(None).cast("string").alias("_source_split"),
         F.current_timestamp().alias("_ingested_at"),
     ).withColumn("_schema_parse_ok", F.col("_parsed_event").isNotNull())
+    bronze = bronze.withColumn(
+        "event_date", F.to_date(F.coalesce("_kafka_timestamp", "_ingested_at"))
+    ).withColumn(
+        "event_hour",
+        F.date_format(F.coalesce("_kafka_timestamp", "_ingested_at"), "HH"),
+    )
 
     query = (
         bronze.writeStream.format("parquet")
-        .option("path", lake_path("bronze/streaming_transactions"))
-        .option("checkpointLocation", lake_path("_checkpoints/kafka_to_bronze"))
+        .option("path", lake_path("bronze/streaming_transactions_v2"))
+        .option("checkpointLocation", lake_path("_checkpoints/kafka_to_bronze_v2"))
+        .partitionBy("event_date", "event_hour")
         .outputMode("append")
         .trigger(processingTime="10 seconds")
         .start()

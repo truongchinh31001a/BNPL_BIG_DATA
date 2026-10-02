@@ -11,7 +11,7 @@
   </property>
   <property>
     <name>dfs.replication</name>
-    <value>1</value>
+    <value>3</value>
   </property>
   <property>
     <name>dfs.namenode.name.dir</name>
@@ -22,8 +22,16 @@
     <value>file:///data/data</value>
   </property>
   <property>
-    <name>dfs.datanode.hostname</name>
-    <value>datanode</value>
+    <name>dfs.datanode.address</name>
+    <value>0.0.0.0:9866</value>
+  </property>
+  <property>
+    <name>dfs.datanode.http.address</name>
+    <value>0.0.0.0:9864</value>
+  </property>
+  <property>
+    <name>dfs.datanode.ipc.address</name>
+    <value>0.0.0.0:9867</value>
   </property>
   <property>
     <name>dfs.permissions.enabled</name>

@@ -13,7 +13,7 @@ def create_spark(app_name: str) -> SparkSession:
         SparkSession.builder.appName(app_name)
         .config("spark.hadoop.fs.defaultFS", settings.hdfs_uri)
         .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
-        .config("spark.hadoop.dfs.replication", "1")
+        .config("spark.hadoop.dfs.replication", str(settings.hdfs_replication))
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.databricks.delta.schema.autoMerge.enabled", "false")

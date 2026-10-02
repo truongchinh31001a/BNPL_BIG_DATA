@@ -4,7 +4,7 @@
 
 ### CURRENT
 
-- Đã có Docker services cho HDFS NameNode/DataNode, PostgreSQL, Spark master + 2 workers và Airflow.
+- Đã có Docker services cho HDFS 1 NameNode + 3 DataNodes, PostgreSQL, Spark master + 2 workers và Airflow.
 - Đã có Spark transformations cơ bản, star schema, ba ML candidates và JDBC export.
 - Đã có Hugging Face streaming ingestion và Kafka-to-Bronze prototype.
 - Chỉ train `default_90d`; feature logic nằm trực tiếp trong một job.
@@ -32,7 +32,11 @@
 ```text
 Airflow batch DAG
   -> Spark cluster
-      -> HDFS Bronze Parquet
+      -> HDFS NameNode
+          -> DataNode 1 / volume 1
+          -> DataNode 2 / volume 2
+          -> DataNode 3 / volume 3
+      -> HDFS Bronze Parquet (replication 3)
       -> Gate -> Quarantine / Silver Delta
       -> Gold Delta -> PostgreSQL
 
@@ -46,12 +50,13 @@ Spark metrics -> Prometheus -> Grafana
 
 ## Storage decisions
 
-- HDFS tại `hdfs://namenode:8020/bnpl-data` là storage duy nhất cho lake, checkpoint và model artifacts.
-- Bronze immutable/raw-oriented Parquet, phân tách historical và streaming.
+- HDFS tại `hdfs://namenode:8020/bnpl-data` là storage duy nhất cho lake, checkpoint và model artifacts. Cụm có ba DataNodes độc lập và `dfs.replication=3`.
+- Bronze immutable/raw-oriented Parquet, phân tách historical và streaming; streaming partition theo `event_date/event_hour`.
 - Silver chứa canonical trusted transaction schema.
 - Gold Analytics giữ transaction grain và deterministic dimension keys.
 - Gold ML là flat table cho Spark MLlib.
 - PostgreSQL chỉ phục vụ BI, predictions, model/DQ metadata và registry batch.
+- Spark 3.5.1 là compute engine duy nhất cho batch, streaming, ML và data generation; không dùng Hadoop MapReduce.
 
 ## Schema evolution
 

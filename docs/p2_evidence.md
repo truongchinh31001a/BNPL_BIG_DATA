@@ -35,6 +35,6 @@ Workflow `.github/workflows/tests.yml` chạy khi push hoặc mở pull request.
 2. Build Spark image từ `spark/Dockerfile`.
 3. Chạy toàn bộ tests với đúng `PYTHONPATH` và Docker command dùng ở local.
 
-Mô phỏng workflow local mới nhất đã thành công: Spark image build hoàn tất, project validator pass và `15 passed in 26.63s`.
+Mô phỏng workflow local mới nhất đã thành công: Spark image build hoàn tất, project validator pass và `18 passed in 22.95s`.
 
 Không thêm external API, Kubernetes, Flink, Databricks, Elasticsearch hoặc LLM. P2 chỉ bổ sung observability và automation quanh kiến trúc đã kiểm chứng ở P0/P1.

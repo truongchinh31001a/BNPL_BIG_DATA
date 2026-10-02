@@ -15,7 +15,7 @@ Quy ước:
 - [ ] Kiểm tra Spark UI, HDFS NameNode UI và Airflow UI.
 - [x] Airflow nhận DAG `bnpl_batch_pipeline` và không có lỗi import.
 - [x] PostgreSQL đã có 4 schema nghiệp vụ, 10 bảng và 3 view phục vụ BI.
-- [x] Toàn bộ schema, validation, feature engineering và integration tests đã chạy: `15 passed`.
+- [x] Toàn bộ schema, validation, feature engineering và integration tests đã chạy: `18 passed`.
 - [x] DAG `bnpl_batch_pipeline` đã chạy lại end-to-end trên HDFS với run `hdfs_20261002_001`.
 - [x] Fact, dimensions, model metrics, Data Quality, batch registry và `ml.predictions` đã có dữ liệu.
 - [x] Streaming và inference profiles đã được kiểm chứng end-to-end.
@@ -30,7 +30,8 @@ Quy ước:
 - [x] Có `.env.example` và `.env` cho môi trường local.
 - [x] `docker compose config` hợp lệ.
 - [x] PostgreSQL khởi động và health check thành công.
-- [x] HDFS NameNode và DataNode khởi động, health check thành công; Spark smoke test đã ghi/đọc 3 dòng Parquet và FSCK báo filesystem `HEALTHY`, không có under-replicated block.
+- [x] Compose v2 khai báo 1 NameNode + 3 DataNodes, ba volume độc lập và `dfs.replication=3`.
+- [ ] Chạy `python scripts/migrate_hdfs_v2.py` và lưu bằng chứng `Live datanodes (3)`, FSCK healthy, 0 under-replicated block.
 - [x] Spark master khởi động và health check thành công.
 - [x] Có 2 Spark workers kết nối với cluster.
 - [x] Airflow webserver và scheduler đang chạy.
@@ -43,6 +44,8 @@ Quy ước:
 - [x] **Đã có code:** metadata `_ingested_at`, `_source_dataset`, `_source_split`, `_pipeline_run_id`, `_batch_id`.
 - [x] **Đã có code:** giới hạn số dòng bằng `INGEST_MAX_ROWS` cho môi trường demo.
 - [x] Dataset personal-loan bổ sung có 100,000 dòng Bronze raw-only; dataset BNPL chính có 100,000 dòng và đi tiếp qua Silver/Gold.
+- [x] Có PySpark job sinh 10 triệu dòng Bronze, partition `event_date/event_hour`, không dùng MapReduce.
+- [ ] Chạy `python scripts/run_10m_generation.py` và xác nhận đúng 10,000,000 rows trên HDFS.
 - [x] Trigger batch đầu tiên với `batch_id=20260921`, run `p0_20260921_001`.
 - [x] Xác nhận dữ liệu xuất hiện tại `/bnpl-data/bronze/historical_transactions/` trên HDFS cho cả hai source.
 - [x] Đối chiếu Bronze có `100,000` dòng, đúng với `INGEST_MAX_ROWS=100000`.
@@ -153,7 +156,8 @@ Quy ước:
 - [x] **Đã có code:** load model 30D/90D và upsert prediction vào PostgreSQL.
 - [ ] Khởi động profile `streaming` trên HDFS và kiểm tra Kafka, producer, consumer.
 - [x] Xác nhận topic `bnpl.transactions.raw` nhận event: high-watermark 9,594.
-- [x] Xác nhận event được persist tại `bronze/streaming_transactions/`: 448 Parquet files.
+- [x] Legacy run đã persist tại `bronze/streaming_transactions/`: 448 Parquet files.
+- [ ] Chạy streaming v2 và xác nhận `bronze/streaming_transactions_v2/event_date=*/event_hour=*` có dữ liệu.
 - [x] Xác nhận invalid event tới `rejected/streaming_transactions/`: 196 Parquet files.
 - [x] Sau khi có saved models, khởi động profile `inference`.
 - [x] Xác nhận transaction mẫu có đủ prediction 30D và 90D.
@@ -184,7 +188,7 @@ Quy ước:
 - [x] Thêm integration test tối thiểu cho Bronze -> Silver -> Gold.
 - [x] Thêm test idempotency khi chạy lại cùng batch.
 - [x] Thêm test streaming event hợp lệ và không hợp lệ.
-- [x] Chạy toàn bộ test lần cuối: `15 passed in 26.63s`; kết quả được ghi trong `docs/p0_evidence.md` và `docs/p1_evidence.md`.
+- [x] Chạy toàn bộ test lần cuối: `18 passed in 22.95s`; kết quả được ghi trong `docs/p0_evidence.md` và `docs/p1_evidence.md`.
 
 ## 4. P2 Optional
 

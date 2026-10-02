@@ -9,6 +9,7 @@ x-airflow-environment: &airflow-environment
   INGEST_MAX_ROWS: ${INGEST_MAX_ROWS}
   HDFS_URI: ${HDFS_URI:-hdfs://namenode:8020}
   HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/bnpl-data}
+  HDFS_REPLICATION: ${HDFS_REPLICATION:-3}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB}
@@ -21,6 +22,7 @@ x-airflow-environment: &airflow-environment
 x-spark-environment: &spark-environment
   HDFS_URI: ${HDFS_URI:-hdfs://namenode:8020}
   HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/bnpl-data}
+  HDFS_REPLICATION: ${HDFS_REPLICATION:-3}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB}
@@ -68,10 +70,12 @@ services:
     image: apache/hadoop:3.3.6
     user: "0:0"
     entrypoint: ["/bin/bash", "-c"]
-    command: ["mkdir -p /data/name /data/data && chown -R 1000:100 /data/name /data/data"]
+    command: ["mkdir -p /data/name /data/data-1 /data/data-2 /data/data-3 && chown -R 1000:100 /data/name /data/data-1 /data/data-2 /data/data-3"]
     volumes:
       - hdfs_namenode:/data/name
-      - hdfs_datanode:/data/data
+      - hdfs_datanode:/data/data-1
+      - hdfs_datanode_2:/data/data-2
+      - hdfs_datanode_3:/data/data-3
     restart: "no"
     networks: [bnpl-network]
 
@@ -118,21 +122,63 @@ services:
       start_period: 20s
     networks: [bnpl-network]
 
-  datanode:
+  datanode-1:
     image: apache/hadoop:3.3.6
-    container_name: bnpl-datanode
-    hostname: datanode
+    container_name: bnpl-datanode-1
+    hostname: datanode-1
     command: ["hdfs", "datanode"]
     depends_on:
       namenode:
         condition: service_healthy
-    ports: ["${HDFS_DATANODE_UI_PORT:-9864}:9864"]
+    ports: ["${HDFS_DATANODE_1_UI_PORT:-9864}:9864"]
     volumes:
       - hdfs_datanode:/data/data
       - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)'"]
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (3)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 20s
+    networks: [bnpl-network]
+
+  datanode-2:
+    image: apache/hadoop:3.3.6
+    container_name: bnpl-datanode-2
+    hostname: datanode-2
+    command: ["hdfs", "datanode"]
+    depends_on:
+      namenode:
+        condition: service_healthy
+    ports: ["${HDFS_DATANODE_2_UI_PORT:-9865}:9864"]
+    volumes:
+      - hdfs_datanode_2:/data/data
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (3)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 20s
+    networks: [bnpl-network]
+
+  datanode-3:
+    image: apache/hadoop:3.3.6
+    container_name: bnpl-datanode-3
+    hostname: datanode-3
+    command: ["hdfs", "datanode"]
+    depends_on:
+      namenode:
+        condition: service_healthy
+    ports: ["${HDFS_DATANODE_3_UI_PORT:-9866}:9864"]
+    volumes:
+      - hdfs_datanode_3:/data/data
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (3)'"]
       interval: 10s
       timeout: 10s
       retries: 18
@@ -143,7 +189,11 @@ services:
     image: apache/hadoop:3.3.6
     container_name: bnpl-hdfs-init
     depends_on:
-      datanode:
+      datanode-1:
+        condition: service_healthy
+      datanode-2:
+        condition: service_healthy
+      datanode-3:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
     command:
@@ -451,6 +501,8 @@ volumes:
   postgres_data:
   hdfs_namenode:
   hdfs_datanode:
+  hdfs_datanode_2:
+  hdfs_datanode_3:
   kafka_data:
   spark_ivy_cache:
   prometheus_data:

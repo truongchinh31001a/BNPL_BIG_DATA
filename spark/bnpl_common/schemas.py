@@ -74,6 +74,8 @@ BRONZE_STREAMING_SCHEMA = StructType(
         StructField("_source_split", StringType(), True),
         StructField("_ingested_at", TimestampType(), False),
         StructField("_schema_parse_ok", BooleanType(), False),
+        StructField("event_date", DateType(), False),
+        StructField("event_hour", StringType(), False),
     ]
 )
 

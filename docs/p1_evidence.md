@@ -104,4 +104,4 @@ Lệnh Docker trong README đã được chạy trên image `bnpl-spark:3.5.1`:
 docker run --rm -e PYTHONPATH=/workspace/spark:/opt/bitnami/spark/python:/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip -v "${PWD}:/workspace" -w /workspace bnpl-spark:3.5.1 python -m pytest -q tests
 ```
 
-Kết quả mới nhất: `15 passed in 26.63s`. Bộ test gồm HDFS path config, schema contract, batch/streaming quality gate, shared feature engineering, Bronze -> Silver -> Gold integration và replay idempotency.
+Kết quả mới nhất: `18 passed in 22.95s`. Bộ test gồm HDFS path/replication config, schema contract, streaming partition contract, batch/streaming quality gate, shared feature engineering, benchmark tools, Bronze -> Silver -> Gold integration và replay idempotency.

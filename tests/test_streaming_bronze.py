@@ -1,7 +1,15 @@
 """The persisted Bronze file contract feeds the existing quality/feature path."""
 
 from pyspark.sql import functions as F
-from pyspark.sql.types import BooleanType, IntegerType, LongType, StringType, StructType, TimestampType
+from pyspark.sql.types import (
+    BooleanType,
+    DateType,
+    IntegerType,
+    LongType,
+    StringType,
+    StructType,
+    TimestampType,
+)
 
 from bnpl_common import BRONZE_STREAMING_SCHEMA, KAFKA_EVENT_SCHEMA, add_bnpl_features, apply_quality_gate, parse_bronze_events
 from tests.helpers import bronze_frame, valid_event
@@ -22,6 +30,8 @@ def test_bronze_streaming_schema_matches_writer_columns():
         "_source_split": StringType,
         "_ingested_at": TimestampType,
         "_schema_parse_ok": BooleanType,
+        "event_date": DateType,
+        "event_hour": StringType,
     }
     assert {field.name: type(field.dataType) for field in BRONZE_STREAMING_SCHEMA} == expected
     assert BRONZE_STREAMING_SCHEMA["_parsed_event"].dataType == KAFKA_EVENT_SCHEMA
