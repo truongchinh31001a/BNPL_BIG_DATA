@@ -19,6 +19,20 @@ def _integer(name: str, default: int) -> int:
     return value
 
 
+def _positive_integer(name: str, default: int) -> int:
+    value = _integer(name, default)
+    if value == 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+def _boolean(name: str, default: bool) -> bool:
+    value = os.getenv(name, str(default)).strip().lower()
+    if value not in {"true", "false", "1", "0", "yes", "no"}:
+        raise ValueError(f"{name} must be a boolean value")
+    return value in {"true", "1", "yes"}
+
+
 def safe_identifier(value: str) -> str:
     """Return a value safe for HDFS partition and model paths."""
 
@@ -42,9 +56,20 @@ class Settings:
     dataset_split: str
     ingest_batch_size: int
     ingest_max_rows: int
+    ingest_stage_reuse: bool
+    ingest_output_partitions: int
     pipeline_run_id: str
     batch_id: str
     model_version: str
+    kafka_max_offsets_per_trigger: int
+    streaming_trigger_seconds: int
+    streaming_watermark: str
+    streaming_bronze_path: str
+    streaming_rejected_path: str
+    streaming_checkpoint_version: str
+    streaming_max_records_per_file: int
+    postgres_write_batch_size: int
+    enforce_horizon_monotonicity: bool
 
     @property
     def postgres_jdbc_url(self) -> str:
@@ -89,9 +114,30 @@ def get_settings() -> Settings:
         dataset_ids=dataset_ids,
         source_dataset_id=os.getenv("BNPL_SOURCE_DATASET_ID", DEFAULT_BNPL_DATASET_ID),
         dataset_split=os.getenv("HF_DATASET_SPLIT", "train"),
-        ingest_batch_size=_integer("INGEST_BATCH_SIZE", 50_000),
+        ingest_batch_size=_positive_integer("INGEST_BATCH_SIZE", 50_000),
         ingest_max_rows=_integer("INGEST_MAX_ROWS", 0),
+        ingest_stage_reuse=_boolean("INGEST_STAGE_REUSE", True),
+        ingest_output_partitions=_positive_integer("INGEST_OUTPUT_PARTITIONS", 4),
         pipeline_run_id=safe_identifier(run_id),
         batch_id=safe_identifier(batch_id),
         model_version=safe_identifier(os.getenv("MODEL_VERSION", "v1")),
+        kafka_max_offsets_per_trigger=_positive_integer(
+            "KAFKA_MAX_OFFSETS_PER_TRIGGER", 50_000
+        ),
+        streaming_trigger_seconds=_positive_integer("STREAMING_TRIGGER_SECONDS", 30),
+        streaming_watermark=os.getenv("STREAMING_WATERMARK", "10 minutes"),
+        streaming_bronze_path=os.getenv(
+            "STREAMING_BRONZE_PATH", "bronze/streaming_transactions_v2"
+        ).strip("/"),
+        streaming_rejected_path=os.getenv(
+            "STREAMING_REJECTED_PATH", "rejected/streaming_transactions_v2"
+        ).strip("/"),
+        streaming_checkpoint_version=safe_identifier(
+            os.getenv("STREAMING_CHECKPOINT_VERSION", "v2")
+        ),
+        streaming_max_records_per_file=_positive_integer(
+            "STREAMING_MAX_RECORDS_PER_FILE", 100_000
+        ),
+        postgres_write_batch_size=_positive_integer("POSTGRES_WRITE_BATCH_SIZE", 1_000),
+        enforce_horizon_monotonicity=_boolean("ENFORCE_HORIZON_MONOTONICITY", True),
     )

@@ -10,19 +10,25 @@ if SPARK_ROOT not in sys.path:
 
 from pyspark.sql import functions as F
 
-from bnpl_common import apply_quality_gate, create_spark, get_settings, lake_path, parse_bronze_events
+from bnpl_common import (
+    apply_quality_gate,
+    create_spark,
+    get_settings,
+    lake_path,
+    parse_bronze_events,
+    safe_identifier,
+)
 
 
 def main() -> None:
     settings = get_settings()
     spark = create_spark("bnpl-validate-bronze")
-    bronze = spark.read.option("recursiveFileLookup", "true").parquet(
-        lake_path("bronze/historical_transactions")
+    source_slug = safe_identifier(settings.source_dataset_id)
+    bronze_path = lake_path(
+        "bronze/historical_transactions/"
+        f"source_slug={source_slug}/batch_key={settings.batch_id}"
     )
-    selected = bronze.filter(
-        (F.col("_source_dataset") == settings.source_dataset_id)
-        & (F.col("_batch_id") == settings.batch_id)
-    )
+    selected = spark.read.parquet(bronze_path)
     validated = apply_quality_gate(
         parse_bronze_events(selected), settings.pipeline_run_id, settings.batch_id
     ).cache()

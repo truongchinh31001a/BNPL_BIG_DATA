@@ -88,7 +88,7 @@ Các endpoint:
 - Prometheus khi bật monitoring: http://localhost:9090
 - Grafana khi bật monitoring: http://localhost:3000
 
-`INGEST_MAX_ROWS=100000` trong `.env.example` phù hợp demo. Đặt `0` để ingest toàn bộ. Giới hạn được áp dụng riêng cho từng source.
+`INGEST_MAX_ROWS=100000` trong `.env.example` phù hợp demo. Đặt `0` để ingest toàn bộ. Giới hạn được áp dụng riêng cho từng source. Ingestion stage source thành Parquet trên MinIO trước, sau đó Spark executors đọc snapshot phân tán để tạo Bronze. `INGEST_STAGE_REUSE=true` cho phép retry dùng lại snapshot đã tải.
 
 ## Batch pipeline
 
@@ -111,7 +111,7 @@ ingest_data -> validate_bronze -> bronze_to_silver -> data_quality_metrics
                  |-> build_ml_features -> train -> eval -|-> load_postgres
 ```
 
-- Historical sources được đọc bằng Hugging Face streaming API nhưng đi thẳng vào Bronze batch, không qua Kafka.
+- Historical sources được tải một lần từ Hugging Face vào `staging/source_snapshots`, sau đó Spark đọc Parquet phân tán để tạo Bronze; batch không đi qua Kafka.
 - Dataset BNPL chính đi qua Silver/Gold. Dataset personal-loan bổ sung được giữ raw tại Bronze cho audit và pipeline riêng.
 - Chạy lại cùng `batch_id` không nhân đôi Silver/Gold vì Bronze partition được ghi lại và Delta MERGE dùng `transaction_id`.
 - Mỗi Spark job có thể chạy độc lập trước khi nối vào Airflow.
@@ -136,7 +136,11 @@ Sau khi batch pipeline đã tạo model registry, bật inference:
 docker compose --profile streaming --profile inference up -d
 ```
 
-Prediction 30D và 90D được upsert vào `ml.predictions`. Event lỗi được giữ tại `rejected/streaming_transactions`.
+Prediction 30D và 90D được upsert vào `ml.predictions`. Event lỗi được giữ tại `rejected/streaming_transactions_v2`.
+
+Topic mặc định có 6 partitions. Streaming dùng event-time watermark 10 phút, giới hạn offsets mỗi trigger và checkpoint v2. Bronze được partition theo `event_date/event_hour`; inference ghi PostgreSQL theo từng Spark partition thay vì `collect()` về driver. Hai consumer là độc lập: một consumer giữ raw Bronze, consumer còn lại thực hiện validation, feature engineering và inference.
+
+Các view `ml.vw_streaming_latency`, `ml.vw_streaming_latency_recent` và `ml.vw_horizon_consistency` phục vụ kiểm tra p50/p95/p99 latency cùng ràng buộc xác suất 30D/90D.
 
 Luồng đầy đủ: Fake BNPL Producer → Apache Kafka → Spark Structured Streaming → Bronze Parquet → Validation / Quality Gate → Shared Feature Engineering → Saved 30D + 90D Models → PostgreSQL Predictions → Power BI.
 
@@ -158,14 +162,16 @@ Mọi lake path nằm dưới `hdfs://namenode:8020/bnpl-data/`:
 
 ```text
 bronze/historical_transactions/           Parquet
-bronze/streaming_transactions/            Parquet
+bronze/streaming_transactions_v2/         Parquet, partition event_date/event_hour
 rejected/transactions/                    Parquet
-rejected/streaming_transactions/          Parquet
+rejected/streaming_transactions_v2/       Parquet, partition event_date/event_hour
 silver/transactions/                      Delta
 gold/shared/enriched_transactions/        Delta
 gold/analytics/*                          Delta
 gold/ml/ml_bnpl_features/                 Delta
 gold/ml/model_metrics/                    Delta
+gold/monitoring/data_drift/               Delta
+gold/monitoring/file_maintenance/          Delta
 models/default_30d/* và models/default_90d/*
 ```
 
@@ -232,4 +238,4 @@ Kết quả pre-HDFS cũ được giữ dưới tên `*_legacy_pre_hdfs.*` để
 - Streaming inference restart liên tục: chạy batch DAG để tạo `gold/ml/model_registry` trước.
 - Không test được Spark trên Windows: cài Java 17 và đặt `JAVA_HOME`, hoặc chạy test trong image.
 
-Chi tiết: [architecture](docs/architecture.md), [data model](docs/data_model.md), [batch pipeline](docs/pipeline.md), [streaming](docs/streaming.md), [benchmark](docs/benchmark.md).
+Chi tiết: [architecture](docs/architecture.md), [data model](docs/data_model.md), [batch pipeline](docs/pipeline.md), [streaming](docs/streaming.md), [benchmark](docs/benchmark.md), [tổng hợp Big Data và xử lý dữ liệu](docs/big_data_processing_summary.md), [cloud và server demo](docs/cloud_demo_deployment.md).
