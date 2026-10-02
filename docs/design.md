@@ -7,3 +7,4 @@ Tài liệu thiết kế đã được tách để khớp với implementation:
 - [Batch pipeline, quality gate và idempotency](pipeline.md)
 - [Kafka streaming và inference](streaming.md)
 - [Spark benchmark](benchmark.md)
+- [Kafka UI, Prometheus và Grafana](monitoring.md)

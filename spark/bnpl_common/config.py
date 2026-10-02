@@ -20,7 +20,7 @@ def _integer(name: str, default: int) -> int:
 
 
 def safe_identifier(value: str) -> str:
-    """Return a value safe for object-store partition and model paths."""
+    """Return a value safe for HDFS partition and model paths."""
 
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", value.strip())
     return normalized.strip("._-") or "unknown"
@@ -28,10 +28,8 @@ def safe_identifier(value: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    minio_endpoint: str
-    minio_access_key: str
-    minio_secret_key: str
-    minio_bucket: str
+    hdfs_uri: str
+    hdfs_base_path: str
     postgres_host: str
     postgres_port: int
     postgres_db: str
@@ -79,10 +77,8 @@ def get_settings() -> Settings:
     batch_id = os.getenv("BATCH_ID", now.strftime("batch_%Y%m%d"))
 
     return Settings(
-        minio_endpoint=os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
-        minio_access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
-        minio_secret_key=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123"),
-        minio_bucket=os.getenv("MINIO_BUCKET", "bnpl-data"),
+        hdfs_uri=os.getenv("HDFS_URI", "hdfs://namenode:8020").rstrip("/"),
+        hdfs_base_path="/" + os.getenv("HDFS_BASE_PATH", "/bnpl-data").strip("/"),
         postgres_host=os.getenv("POSTGRES_HOST", "postgres"),
         postgres_port=_integer("POSTGRES_PORT", 5432),
         postgres_db=os.getenv("POSTGRES_DB", "bnpl_dw"),

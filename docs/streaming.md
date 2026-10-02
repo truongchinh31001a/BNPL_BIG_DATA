@@ -31,7 +31,7 @@ docker compose --profile streaming --profile inference up -d
 
 ## Reliability
 
-- Kafka offsets được quản lý bằng checkpoint trên MinIO.
+- Kafka offsets được quản lý bằng checkpoint trên HDFS.
 - Raw invalid events vẫn tồn tại ở Bronze; invalid inference events được append vào quarantine.
 - Prediction unique key gồm transaction, model, version và horizon nên retry micro-batch không nhân đôi.
 - Apache Kafka KRaft có named volume `kafka_data`; Bronze mới là raw source of truth lâu dài. Bootstrap nội bộ là `kafka:9092`, bên ngoài là `localhost:19092`.

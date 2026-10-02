@@ -1,4 +1,4 @@
-"""Spark session and object-store path configuration."""
+"""Spark session and HDFS lake path configuration."""
 
 from __future__ import annotations
 
@@ -11,11 +11,9 @@ def create_spark(app_name: str) -> SparkSession:
     settings = get_settings()
     spark = (
         SparkSession.builder.appName(app_name)
-        .config("spark.hadoop.fs.s3a.endpoint", settings.minio_endpoint)
-        .config("spark.hadoop.fs.s3a.access.key", settings.minio_access_key)
-        .config("spark.hadoop.fs.s3a.secret.key", settings.minio_secret_key)
-        .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        .config("spark.hadoop.fs.defaultFS", settings.hdfs_uri)
+        .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+        .config("spark.hadoop.dfs.replication", "1")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.databricks.delta.schema.autoMerge.enabled", "false")
@@ -28,4 +26,4 @@ def create_spark(app_name: str) -> SparkSession:
 
 def lake_path(path: str) -> str:
     settings = get_settings()
-    return f"s3a://{settings.minio_bucket}/{path.strip('/')}"
+    return f"{settings.hdfs_uri}{settings.hdfs_base_path}/{path.strip('/')}"

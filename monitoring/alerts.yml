@@ -1,0 +1,11 @@
+groups:
+  - name: bnpl-platform
+    rules:
+      - alert: BnplServiceDown
+        expr: up{job=~"spark-master|spark-workers"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BNPL platform target is unavailable"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }}."

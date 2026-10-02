@@ -7,10 +7,8 @@ x-airflow-environment: &airflow-environment
   HF_DATASET_SPLIT: ${HF_DATASET_SPLIT}
   INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE}
   INGEST_MAX_ROWS: ${INGEST_MAX_ROWS}
-  MINIO_ENDPOINT: http://minio:9000
-  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  MINIO_BUCKET: ${MINIO_BUCKET}
+  HDFS_URI: ${HDFS_URI:-hdfs://namenode:8020}
+  HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/bnpl-data}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB}
@@ -21,10 +19,8 @@ x-airflow-environment: &airflow-environment
   PIPELINE_REGISTRY_ENABLED: ${PIPELINE_REGISTRY_ENABLED:-true}
 
 x-spark-environment: &spark-environment
-  MINIO_ENDPOINT: http://minio:9000
-  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  MINIO_BUCKET: ${MINIO_BUCKET}
+  HDFS_URI: ${HDFS_URI:-hdfs://namenode:8020}
+  HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/bnpl-data}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB}
@@ -68,31 +64,96 @@ services:
       psql -v ON_ERROR_STOP=1 -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /sql/data_quality_schema.sql"
     networks: [bnpl-network]
 
-  minio:
-    image: minio/minio:latest
-    container_name: bnpl-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports: ["${MINIO_API_PORT:-9002}:9000", "${MINIO_CONSOLE_PORT:-9001}:9001"]
-    volumes: ["minio_data:/data"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+  hdfs-volume-init:
+    image: apache/hadoop:3.3.6
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["mkdir -p /data/name /data/data && chown -R 1000:100 /data/name /data/data"]
+    volumes:
+      - hdfs_namenode:/data/name
+      - hdfs_datanode:/data/data
+    restart: "no"
     networks: [bnpl-network]
 
-  minio-init:
-    image: minio/mc:latest
-    container_name: bnpl-minio-init
+  hdfs-format:
+    image: apache/hadoop:3.3.6
     depends_on:
-      minio:
+      hdfs-volume-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        if [ ! -f /data/name/current/VERSION ]; then
+          hdfs namenode -format -force -nonInteractive;
+        fi
+    volumes:
+      - hdfs_namenode:/data/name
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    restart: "no"
+    networks: [bnpl-network]
+
+  namenode:
+    image: apache/hadoop:3.3.6
+    container_name: bnpl-namenode
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    depends_on:
+      hdfs-format:
+        condition: service_completed_successfully
+    environment:
+      ENSURE_NAMENODE_DIR: /data/name
+    ports:
+      - "${HDFS_NAMENODE_UI_PORT:-9870}:9870"
+      - "8020:8020"
+    volumes:
+      - hdfs_namenode:/data/name
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 20s
+    networks: [bnpl-network]
+
+  datanode:
+    image: apache/hadoop:3.3.6
+    container_name: bnpl-datanode
+    hostname: datanode
+    command: ["hdfs", "datanode"]
+    depends_on:
+      namenode:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      mc mb -p local/${MINIO_BUCKET} || true;"
+    ports: ["${HDFS_DATANODE_UI_PORT:-9864}:9864"]
+    volumes:
+      - hdfs_datanode:/data/data
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 20s
+    networks: [bnpl-network]
+
+  hdfs-init:
+    image: apache/hadoop:3.3.6
+    container_name: bnpl-hdfs-init
+    depends_on:
+      datanode:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        hdfs dfs -mkdir -p ${HDFS_BASE_PATH:-/bnpl-data} &&
+        hdfs dfs -chmod 777 ${HDFS_BASE_PATH:-/bnpl-data}
+    volumes:
+      - ./hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    restart: "no"
     networks: [bnpl-network]
 
   kafka-volume-init:
@@ -176,7 +237,12 @@ services:
       SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
       SPARK_SSL_ENABLED: "no"
     ports: ["7077:7077", "8080:8080"]
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    depends_on:
+      hdfs-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - ./spark/conf/metrics.properties:/opt/bitnami/spark/conf/metrics.properties:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/$$(hostname)/7077'"]
       interval: 10s
@@ -192,12 +258,29 @@ services:
       SPARK_MASTER_URL: spark://spark-master:7077
       SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
       SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_WORKER_OPTS: >-
+        -Dspark.worker.cleanup.enabled=true
+        -Dspark.worker.cleanup.interval=60
+        -Dspark.worker.cleanup.appDataTtl=300
     depends_on:
       spark-master:
         condition: service_healthy
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - ./spark/conf/metrics.properties:/opt/bitnami/spark/conf/metrics.properties:ro
     deploy:
       replicas: ${SPARK_WORKER_REPLICAS:-2}
+    networks: [bnpl-network]
+
+  spark-ivy-init:
+    image: bnpl-spark:3.5.1
+    profiles: [streaming, inference]
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["mkdir -p /opt/bitnami/spark/.ivy2/cache /opt/bitnami/spark/.ivy2/jars && chown -R 1001:0 /opt/bitnami/spark/.ivy2"]
+    volumes:
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
+    restart: "no"
     networks: [bnpl-network]
 
   spark-streaming-job:
@@ -208,18 +291,26 @@ services:
       - /opt/bitnami/spark/bin/spark-submit
       - --master
       - spark://spark-master:7077
+      - --conf
+      - spark.cores.max=2
+      - --conf
+      - spark.executor.cores=1
       - --packages
-      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      - io.delta:delta-spark_2.12:3.2.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
       - /opt/bitnami/spark/app/jobs/streaming_kafka_to_bronze.py
     environment: *spark-environment
     depends_on:
       spark-master:
         condition: service_healthy
-      minio-init:
+      spark-ivy-init:
+        condition: service_completed_successfully
+      hdfs-init:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
     restart: unless-stopped
     networks: [bnpl-network]
 
@@ -231,8 +322,12 @@ services:
       - /opt/bitnami/spark/bin/spark-submit
       - --master
       - spark://spark-master:7077
+      - --conf
+      - spark.cores.max=2
+      - --conf
+      - spark.executor.cores=1
       - --packages
-      - io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262
+      - io.delta:delta-spark_2.12:3.2.0
       - /opt/bitnami/spark/app/jobs/streaming_predict.py
     environment: *spark-environment
     depends_on:
@@ -242,7 +337,13 @@ services:
         condition: service_healthy
       spark-streaming-job:
         condition: service_started
-    volumes: ["./spark:/opt/bitnami/spark/app:ro"]
+      spark-ivy-init:
+        condition: service_completed_successfully
+      hdfs-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./spark:/opt/bitnami/spark/app:ro
+      - spark_ivy_cache:/opt/bitnami/spark/.ivy2
     restart: unless-stopped
     networks: [bnpl-network]
 
@@ -294,7 +395,7 @@ services:
         condition: service_completed_successfully
       spark-master:
         condition: service_healthy
-      minio-init:
+      hdfs-init:
         condition: service_completed_successfully
     command: scheduler
     environment: *airflow-environment
@@ -307,10 +408,53 @@ services:
     restart: unless-stopped
     networks: [bnpl-network]
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: bnpl-prometheus
+    profiles: [monitoring]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks: [bnpl-network]
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: bnpl-grafana
+    profiles: [monitoring]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_DISABLE_PLUGINS: xychart
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+    networks: [bnpl-network]
+
 volumes:
   postgres_data:
-  minio_data:
+  hdfs_namenode:
+  hdfs_datanode:
   kafka_data:
+  spark_ivy_cache:
+  prometheus_data:
+  grafana_data:
 
 networks:
   bnpl-network:

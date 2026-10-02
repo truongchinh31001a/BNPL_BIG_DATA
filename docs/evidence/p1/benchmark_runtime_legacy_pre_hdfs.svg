@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560">
+<rect width="100%" height="100%" fill="#F7F8F6"/>
+<text x="92" y="32" font-family="Segoe UI,Arial" font-size="22" font-weight="600" fill="#18212A">Spark median runtime: worker and mode comparison</text>
+<line x1="92" y1="482.0" x2="928" y2="482.0" stroke="#D8DDDE"/>
+<text x="80" y="487.0" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">0.0</text>
+<line x1="92" y1="397.2" x2="928" y2="397.2" stroke="#D8DDDE"/>
+<text x="80" y="402.2" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">10.0</text>
+<line x1="92" y1="312.4" x2="928" y2="312.4" stroke="#D8DDDE"/>
+<text x="80" y="317.4" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">19.9</text>
+<line x1="92" y1="227.6" x2="928" y2="227.6" stroke="#D8DDDE"/>
+<text x="80" y="232.6" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">29.9</text>
+<line x1="92" y1="142.8" x2="928" y2="142.8" stroke="#D8DDDE"/>
+<text x="80" y="147.8" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">39.9</text>
+<line x1="92" y1="58.0" x2="928" y2="58.0" stroke="#D8DDDE"/>
+<text x="80" y="63.0" text-anchor="end" font-family="Segoe UI,Arial" font-size="12" fill="#48545C">49.9</text>
+<text x="92.0" y="516" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#38434A">100K</text>
+<text x="370.7" y="516" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#38434A">500K</text>
+<text x="649.3" y="516" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#38434A">1M</text>
+<text x="928.0" y="516" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#38434A">2M</text>
+<polyline points="92.0,307.4 370.7,303.9 649.3,304.1 928.0,290.1" fill="none" stroke="#C2413B" stroke-width="3"/>
+<circle cx="92.0" cy="307.4" r="4.5" fill="#C2413B"/>
+<circle cx="370.7" cy="303.9" r="4.5" fill="#C2413B"/>
+<circle cx="649.3" cy="304.1" r="4.5" fill="#C2413B"/>
+<circle cx="928.0" cy="290.1" r="4.5" fill="#C2413B"/>
+<polyline points="92.0,225.9 370.7,191.6 649.3,136.8 928.0,190.7" fill="none" stroke="#196C72" stroke-width="3"/>
+<circle cx="92.0" cy="225.9" r="4.5" fill="#196C72"/>
+<circle cx="370.7" cy="191.6" r="4.5" fill="#196C72"/>
+<circle cx="649.3" cy="136.8" r="4.5" fill="#196C72"/>
+<circle cx="928.0" cy="190.7" r="4.5" fill="#196C72"/>
+<polyline points="92.0,322.2 370.7,307.0 649.3,314.6 928.0,298.6" fill="none" stroke="#D69E2E" stroke-width="3"/>
+<circle cx="92.0" cy="322.2" r="4.5" fill="#D69E2E"/>
+<circle cx="370.7" cy="307.0" r="4.5" fill="#D69E2E"/>
+<circle cx="649.3" cy="314.6" r="4.5" fill="#D69E2E"/>
+<circle cx="928.0" cy="298.6" r="4.5" fill="#D69E2E"/>
+<polyline points="92.0,240.7 370.7,239.4 649.3,235.5 928.0,103.4" fill="none" stroke="#276749" stroke-width="3"/>
+<circle cx="92.0" cy="240.7" r="4.5" fill="#276749"/>
+<circle cx="370.7" cy="239.4" r="4.5" fill="#276749"/>
+<circle cx="649.3" cy="235.5" r="4.5" fill="#276749"/>
+<circle cx="928.0" cy="103.4" r="4.5" fill="#276749"/>
+<line x1="92" y1="544" x2="116" y2="544" stroke="#C2413B" stroke-width="3"/>
+<text x="123" y="549" font-family="Segoe UI,Arial" font-size="12" fill="#263238">Full - 1 worker</text>
+<line x1="282" y1="544" x2="306" y2="544" stroke="#196C72" stroke-width="3"/>
+<text x="313" y="549" font-family="Segoe UI,Arial" font-size="12" fill="#263238">Full - 2 worker</text>
+<line x1="472" y1="544" x2="496" y2="544" stroke="#D69E2E" stroke-width="3"/>
+<text x="503" y="549" font-family="Segoe UI,Arial" font-size="12" fill="#263238">Incremental - 1 worker</text>
+<line x1="662" y1="544" x2="686" y2="544" stroke="#276749" stroke-width="3"/>
+<text x="693" y="549" font-family="Segoe UI,Arial" font-size="12" fill="#263238">Incremental - 2 worker</text>
+<text x="480.0" y="512" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#263238">Requested dataset size</text>
+<text x="20" y="280.0" transform="rotate(-90 20 280.0)" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#263238">Median runtime (seconds)</text>
+</svg>

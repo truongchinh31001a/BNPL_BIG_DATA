@@ -4,7 +4,7 @@ Hai job đo hai câu hỏi riêng: Spark scalability và full reload so với De
 
 ## Spark scalability
 
-Workload cố định: Delta read -> limit/sample -> filter -> groupBy -> aggregate -> join -> Parquet write. Mỗi configuration nên chạy ít nhất ba lần và báo cáo median runtime.
+Workload cố định: Delta read -> deterministic expansion -> filter -> groupBy -> aggregate -> join -> Parquet write. Mỗi configuration chạy ba lần chính thức và báo cáo median runtime; một warm-up riêng cho mỗi cặp worker/suite không được đưa vào thống kê.
 
 ## Matrix
 
@@ -14,7 +14,17 @@ workers: 1, 2
 runs: 1, 2, 3
 ```
 
-## Chạy job
+## Chạy toàn bộ ma trận
+
+Từ terminal tại root repository:
+
+```bash
+python scripts/run_benchmark_matrix.py
+```
+
+Script dừng producer/streaming để giữ tài nguyên ổn định, scale lần lượt 1 và 2 Spark workers, rồi chạy hai suite `scalability` và `incremental`. Mỗi suite có warm-up riêng và 24 lượt chính thức, tổng cộng 48 lượt chính thức. Có thể chỉ chạy một suite bằng `--benchmark scalability` hoặc `--benchmark incremental`.
+
+## Chạy một job
 
 Đặt environment tương ứng rồi chạy `spark/jobs/benchmark_scalability.py` bằng cùng `spark-submit --packages` như DAG. Worker dùng một service có thể scale, ví dụ `docker compose up -d --scale spark-worker=1` hoặc `--scale spark-worker=2`. Không thay đổi cores/memory giữa các lượt so sánh.
 
@@ -47,3 +57,24 @@ BENCHMARK_INCREMENTAL_FRACTION=0.25
 ```
 
 Kết quả riêng ở Delta `benchmarks/incremental_results`; khóa idempotent là `(dataset_size, worker_count, run_number, processing_mode)`. Các cột gồm `baseline_records`, `incremental_records`, `processed_records`, `runtime_seconds`, `records_per_second`, `final_row_count`, `idempotency_verified` và `created_at`. Không trộn kết quả này với scalability benchmark.
+
+## Xuất evidence
+
+`spark/jobs/export_benchmark_results.py` tính median từ ba runs và ghi CSV tại `benchmarks/summary_csv`. Sau khi đưa CSV về repository, tạo biểu đồ bằng:
+
+```bash
+python scripts/render_benchmark_charts.py docs/evidence/p1/benchmark_summary.csv docs/evidence/p1
+```
+
+Exporter gộp hai Delta result sets và thêm cột `benchmark_suite` để không trộn workload scalability với full reload/MERGE. Kết quả HDFS mới sau khi chạy đầy đủ sẽ nằm tại:
+
+- `docs/evidence/p1/benchmark_summary.csv`
+- `docs/evidence/p1/benchmark_runtime.svg`
+- `docs/evidence/p1/benchmark_throughput.svg`
+- `docs/evidence/p1/benchmark_incremental_runtime.svg`
+- `docs/evidence/p1/benchmark_incremental_throughput.svg`
+- `docs/p1_evidence.md`
+
+Ba artifacts có hậu tố `_legacy_pre_hdfs` chỉ là bằng chứng lịch sử từ implementation benchmark cũ; không dùng chúng làm kết quả chính thức của kiến trúc HDFS.
+
+Spark workers bật automatic app cleanup với interval 60 giây và TTL 300 giây. Nếu Docker bị dừng cứng giữa benchmark, kiểm tra `docker system df -v`; tạo lại riêng worker sẽ giải phóng phần tạm mà không xóa named volume HDFS/PostgreSQL.

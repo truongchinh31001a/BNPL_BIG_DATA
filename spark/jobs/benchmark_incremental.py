@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+from math import ceil
 from pathlib import Path
 
 SPARK_ROOT = str(Path(__file__).resolve().parents[1])
@@ -42,6 +43,28 @@ def split_counts(actual_count: int, incremental_fraction: float) -> tuple[int, i
     return actual_count - incremental_count, incremental_count
 
 
+def expand_to_size(spark, source, requested_size: int):
+    """Deterministically expand a source with unique transaction keys."""
+
+    source_count = source.count()
+    if source_count == 0:
+        raise ValueError("Silver source is empty")
+    replica_count = ceil(requested_size / source_count)
+    replicas = F.broadcast(
+        spark.range(replica_count).withColumnRenamed("id", "_replica")
+    )
+    return (
+        source.crossJoin(replicas)
+        .withColumn(
+            "transaction_id",
+            F.concat_ws("_B", "transaction_id", F.col("_replica")),
+        )
+        .orderBy("_replica", "transaction_id")
+        .limit(requested_size)
+        .drop("_replica")
+    )
+
+
 def _result(size, baseline_count, incremental_count, processed, workers, run_number, mode, runtime, final_count, verified):
     return (
         size, baseline_count, incremental_count, processed, workers, run_number,
@@ -54,12 +77,12 @@ def main() -> None:
     workers = int(os.getenv("BENCHMARK_WORKER_COUNT", "2"))
     run_number = int(os.getenv("BENCHMARK_RUN_NUMBER", "1"))
     fraction = float(os.getenv("BENCHMARK_INCREMENTAL_FRACTION", "0.25"))
-    if size < 2 or workers < 1 or run_number < 1:
-        raise ValueError("Benchmark size must be >=2; worker count and run number must be >=1")
+    if size < 2 or workers < 1 or run_number < 0:
+        raise ValueError("Benchmark size must be >=2; worker count must be >=1; run number must be >=0")
 
     spark = create_spark(f"bnpl-incremental-{size}-{workers}-{run_number}")
     silver = spark.read.format("delta").load(lake_path("silver/transactions"))
-    sample = silver.orderBy("transaction_id").limit(size).cache()
+    sample = expand_to_size(spark, silver, size).cache()
     actual_count = sample.count()
     baseline_count, incremental_count = split_counts(actual_count, fraction)
     if sample.select("transaction_id").distinct().count() != actual_count:

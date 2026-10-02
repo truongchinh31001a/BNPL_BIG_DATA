@@ -1,4 +1,4 @@
-"""Optional explicit local snapshot tool; production ingestion streams to MinIO."""
+"""Optional explicit local snapshot tool; production ingestion writes to HDFS."""
 
 import argparse
 from itertools import islice

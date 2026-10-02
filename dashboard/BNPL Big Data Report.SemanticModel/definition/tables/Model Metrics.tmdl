@@ -1,0 +1,64 @@
+table 'Model Metrics'
+
+	measure 'Model Accuracy' = MAX('Model Metrics'[accuracy])
+		formatString: 0.00%
+
+	measure 'Model Precision' = MAX('Model Metrics'[precision_score])
+		formatString: 0.00%
+
+	measure 'Model Recall' = MAX('Model Metrics'[recall_score])
+		formatString: 0.00%
+
+	measure 'Model F1' = MAX('Model Metrics'[f1_score])
+		formatString: 0.00%
+
+	measure 'Model ROC AUC' = MAX('Model Metrics'[roc_auc])
+		formatString: 0.000
+
+	column model_name
+		dataType: string
+		summarizeBy: none
+		sourceColumn: model_name
+
+	column model_version
+		dataType: string
+		summarizeBy: none
+		sourceColumn: model_version
+
+	column prediction_horizon
+		dataType: string
+		summarizeBy: none
+		sourceColumn: prediction_horizon
+
+	column accuracy
+		dataType: double
+		summarizeBy: average
+		sourceColumn: accuracy
+
+	column precision_score
+		dataType: double
+		summarizeBy: average
+		sourceColumn: precision_score
+
+	column recall_score
+		dataType: double
+		summarizeBy: average
+		sourceColumn: recall_score
+
+	column f1_score
+		dataType: double
+		summarizeBy: average
+		sourceColumn: f1_score
+
+	column roc_auc
+		dataType: double
+		summarizeBy: average
+		sourceColumn: roc_auc
+
+	partition 'Model Metrics' = m
+		mode: import
+		source =
+			let
+				Source = PostgreSQL.Database(Server, Database, [CreateNavigationProperties=false, Query="select model_name, model_version, prediction_horizon, accuracy, precision_score, recall_score, f1_score, roc_auc from ml.model_metrics"])
+			in
+				Source

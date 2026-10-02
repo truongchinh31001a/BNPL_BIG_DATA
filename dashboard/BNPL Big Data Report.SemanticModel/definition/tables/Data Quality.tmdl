@@ -1,0 +1,47 @@
+table 'Data Quality'
+
+	measure 'DQ Metric Value' = SUM('Data Quality'[metric_value])
+		formatString: #,##0.00
+
+	column pipeline_run_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: pipeline_run_id
+
+	column batch_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: batch_id
+
+	column source
+		dataType: string
+		summarizeBy: none
+		sourceColumn: source
+
+	column layer
+		dataType: string
+		summarizeBy: none
+		sourceColumn: layer
+
+	column metric_name
+		dataType: string
+		summarizeBy: none
+		sourceColumn: metric_name
+
+	column metric_value
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: metric_value
+
+	column created_at
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: created_at
+
+	partition 'Data Quality' = m
+		mode: import
+		source =
+			let
+				Source = PostgreSQL.Database(Server, Database, [CreateNavigationProperties=false, Query="select pipeline_run_id, batch_id, source, layer, metric_name, metric_value, created_at from data_quality.data_quality_metrics"])
+			in
+				Source

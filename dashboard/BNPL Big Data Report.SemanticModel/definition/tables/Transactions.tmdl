@@ -1,0 +1,112 @@
+table Transactions
+
+	/// Number of BNPL transactions in the current filter context.
+	measure 'Total Transactions' = COUNTROWS(Transactions)
+		formatString: #,##0
+
+	/// Total financed principal in Nigerian naira.
+	measure 'Total BNPL Amount' = SUM(Transactions[principal_ngn])
+		formatString: N #,##0.00
+
+	/// Average financed principal in Nigerian naira.
+	measure 'Average Loan' = AVERAGE(Transactions[principal_ngn])
+		formatString: N #,##0.00
+
+	/// Share of transactions defaulting within 30 days.
+	measure 'Default 30D Rate' = DIVIDE(CALCULATE(COUNTROWS(Transactions), Transactions[default_30d] = TRUE()), [Total Transactions])
+		formatString: 0.00%
+
+	/// Share of transactions defaulting within 90 days.
+	measure 'Default 90D Rate' = DIVIDE(CALCULATE(COUNTROWS(Transactions), Transactions[default_90d] = TRUE()), [Total Transactions])
+		formatString: 0.00%
+
+	/// Number of customers in the current filter context.
+	measure 'Total Customers' = DISTINCTCOUNT(Transactions[customer_id])
+		formatString: #,##0
+
+	/// Number of 30-day defaults.
+	measure '30D Defaults' = CALCULATE(COUNTROWS(Transactions), Transactions[default_30d] = TRUE())
+		formatString: #,##0
+
+	/// Number of 90-day defaults.
+	measure '90D Defaults' = CALCULATE(COUNTROWS(Transactions), Transactions[default_90d] = TRUE())
+		formatString: #,##0
+
+	column transaction_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: transaction_id
+
+	column principal_ngn
+		dataType: decimal
+		summarizeBy: sum
+		sourceColumn: principal_ngn
+
+	column credit_score
+		dataType: int64
+		summarizeBy: average
+		sourceColumn: credit_score
+
+	column default_30d
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: default_30d
+
+	column default_90d
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: default_90d
+
+	column full_date
+		dataType: dateTime
+		formatString: Short Date
+		summarizeBy: none
+		sourceColumn: full_date
+
+	column year
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: year
+
+	column merchant_category
+		dataType: string
+		summarizeBy: none
+		sourceColumn: merchant_category
+
+	column provider_name
+		dataType: string
+		summarizeBy: none
+		sourceColumn: provider_name
+
+	column customer_state
+		dataType: string
+		summarizeBy: none
+		sourceColumn: customer_state
+
+	column customer_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: customer_id
+
+	column first_time_customer
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: first_time_customer
+
+	column credit_score_band
+		dataType: string
+		summarizeBy: none
+		sourceColumn: credit_score_band
+
+	column loan_size_category
+		dataType: string
+		summarizeBy: none
+		sourceColumn: loan_size_category
+
+	partition Transactions = m
+		mode: import
+		source =
+			let
+				Source = PostgreSQL.Database(Server, Database, [CreateNavigationProperties=false, Query="select transaction_id, principal_ngn, credit_score, default_30d, default_90d, full_date, year, merchant_category, provider_name, customer_state, customer_id, first_time_customer, credit_score_band, loan_size_category from analytics.vw_bnpl_transactions"])
+			in
+				Source
