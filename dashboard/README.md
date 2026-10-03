@@ -1,4 +1,16 @@
-# Power BI dashboard
+# Presentation dashboards
+
+## Streamlit Command Center
+
+Dashboard demo chạy trong Docker, chỉ đọc PostgreSQL serving layer và hiển thị health của HDFS/Spark:
+
+```bash
+docker compose --profile demo up -d --build demo-dashboard
+```
+
+Mở http://localhost:8501. Trang **Live Risk Prediction** cho phép chọn preset hồ sơ, gửi event thật qua Kafka và tự chờ Spark trả kết quả 30D/90D. Kết quả gồm gauge xác suất, model/version, quyết định, khuyến nghị, payload và tín hiệu nghiệp vụ minh bạch. Source nằm trong `dashboard/streamlit/`.
+
+## Power BI dashboard
 
 Project đã tạo: `BNPL Big Data Report.pbip`.
 

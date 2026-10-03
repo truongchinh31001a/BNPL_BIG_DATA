@@ -458,6 +458,36 @@ services:
     restart: unless-stopped
     networks: [bnpl-network]
 
+  demo-dashboard:
+    build: ./dashboard/streamlit
+    image: bnpl-demo-dashboard:latest
+    container_name: bnpl-demo-dashboard
+    profiles: [demo]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-schema-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      HDFS_JMX_URL: http://namenode:9870/jmx
+      SPARK_MASTER_HTTP_URL: http://spark-master:8080
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+    ports: ["${STREAMLIT_PORT:-8501}:8501"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    networks: [bnpl-network]
+
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: bnpl-prometheus

@@ -26,7 +26,7 @@ Schema validation + Data Quality Gate                   v
            |                 |                            v
       Star Schema      Spark MLlib models              Power BI
            |
-       PostgreSQL -> Power BI
+      PostgreSQL -> Power BI / Streamlit
 ```
 
 Kafka là transport layer, không phải Bronze. Airflow chỉ orchestrate batch pipeline; các Structured Streaming jobs chạy lâu dài dưới Docker Compose.
@@ -46,7 +46,7 @@ Spark executors -> hdfs://namenode:8020/bnpl-data
 - Python, PySpark 3.5.1, Spark SQL, Spark MLlib và Structured Streaming
 - Apache Kafka 3.9.1 (KRaft), Airflow 2.9.2
 - HDFS 3.3.6: 1 NameNode + 3 DataNodes, replication factor 3; Bronze Parquet; Silver và Gold Delta Lake 3.2
-- PostgreSQL 16 làm serving/data warehouse cho Power BI
+- PostgreSQL 16 làm serving/data warehouse cho Power BI và Streamlit
 - Prometheus và Grafana cho quan sát Spark
 - Docker Compose với 1 Spark master và service worker có thể scale bằng `SPARK_WORKER_REPLICAS`
 
@@ -74,7 +74,7 @@ docs/                                     Architecture and runbooks
 - Docker Desktop và Docker Compose v2
 - Cấp tối thiểu 10 GB RAM cho batch stack; khuyến nghị 12 GB RAM khi chạy full stack hoặc job sinh 10 triệu dòng
 - Các port batch: `5432`, `8020`, `9864`, `9865`, `9866`, `9870`, `8080`, `8088`
-- Các port optional: `19092`, `9090`, `3000`
+- Các port optional: `19092`, `9090`, `3000`, `8501`
 
 ## Khởi động
 
@@ -105,6 +105,7 @@ Các endpoint:
 - Kafka external bootstrap khi bật profile streaming: `localhost:19092`
 - Prometheus khi bật monitoring: http://localhost:9090
 - Grafana khi bật monitoring: http://localhost:3000
+- BNPL Command Center khi bật demo: http://localhost:8501
 
 `INGEST_MAX_ROWS=100000` trong `.env.example` phù hợp demo. Đặt `0` để ingest toàn bộ. Giới hạn được áp dụng riêng cho từng source.
 
@@ -172,6 +173,24 @@ docker compose --profile streaming --profile inference up -d
 Prediction 30D và 90D được upsert vào `ml.predictions`. Event lỗi được giữ tại `rejected/streaming_transactions`.
 
 Luồng đầy đủ: Fake BNPL Producer → Apache Kafka → Spark Structured Streaming → Bronze Parquet → Validation / Quality Gate → Shared Feature Engineering → Saved 30D + 90D Models → PostgreSQL Predictions → Power BI.
+
+## Giao diện demo thuyết trình
+
+BNPL Command Center là dashboard Streamlit trên PostgreSQL serving layer. Năm màn hình gồm Executive Overview, Portfolio Intelligence, ML Risk Center, Live Risk Prediction và Platform Health. Giao diện không đọc raw data từ HDFS và không đưa Big Data thô vào PostgreSQL. Riêng trang Live Risk Prediction được phép gửi một event demo vào Kafka rồi tự chờ kết quả Spark MLlib 30D/90D từ PostgreSQL.
+
+Khởi động dashboard trên batch stack hiện có:
+
+```bash
+docker compose --profile demo up -d --build demo-dashboard
+```
+
+Mở http://localhost:8501. Khi demo luồng prediction realtime, bật thêm streaming và inference:
+
+```bash
+docker compose --profile demo --profile streaming --profile inference up -d
+```
+
+Nút **Làm mới dữ liệu** xóa cache 15 giây để cập nhật prediction mới nhất. Trang **Live Risk Prediction** có ba preset hồ sơ, gửi event qua Kafka và tự polling để hiển thị hai gauge xác suất 30D/90D. Báo cáo kết quả kèm predicted default, model/version, chênh lệch hai horizon, payload khoản vay, khuyến nghị và tín hiệu nghiệp vụ; các tín hiệu được ghi rõ không phải SHAP. Trang này cần profile `streaming` và `inference`. Màn Platform Health đọc trạng thái HDFS/Spark qua endpoint nội bộ và đọc Airflow batch status từ PostgreSQL.
 
 ## Monitoring
 
