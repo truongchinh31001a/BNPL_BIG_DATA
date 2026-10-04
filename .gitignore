@@ -7,3 +7,4 @@ data/local/
 airflow/logs/
 airflow/plugins/
 postgres_data/
+.slide-build/

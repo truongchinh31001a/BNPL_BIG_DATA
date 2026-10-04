@@ -2,6 +2,10 @@
 
 Nền tảng Big Data end-to-end cho phân tích và dự báo rủi ro BNPL tại Nigeria. Trọng tâm của project là ingestion, data quality, xử lý phân tán, incremental/idempotent pipeline và serving; Machine Learning là một downstream use case.
 
+Bản tổng hợp phục vụ báo cáo/thuyết trình: [Dữ liệu, generator, HDFS, Batch/Streaming và Bronze–Silver–Gold](docs/data_pipeline_summary.md).
+
+Slide thuyết trình: [BNPL Big Data Platform — PowerPoint 26 trang](docs/slides/BNPL_Big_Data_Platform.pptx).
+
 ## Kiến trúc
 
 ```text
